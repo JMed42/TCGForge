@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { useStore } from '../../store';
+import CardArtField from './CardArtField';
 
 const RARITY_OPTIONS = ['Common', 'Uncommon', 'Rare', 'Mythic', 'Legendary'];
 
@@ -34,6 +35,7 @@ export default function CardEditor() {
         flavor_text: editingCard.flavor_text || '',
         tags: editingCard.tags || [],
         notes: editingCard.notes || '',
+        image_path: editingCard.image_path || '',
         custom_fields: editingCard.custom_fields || {},
       });
       setTagInput('');
@@ -154,6 +156,18 @@ export default function CardEditor() {
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+            {/* Art */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wide">
+                Art
+              </h3>
+              <CardArtField
+                projectId={activeProjectId}
+                value={formData.image_path || ''}
+                onChange={(path) => handleChange('image_path', path)}
+              />
+            </div>
+
             {/* Basic Info Section */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wide">

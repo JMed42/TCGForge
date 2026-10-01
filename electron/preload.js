@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld('api', {
   exportCard: (cardId, templateId, options) => ipcRenderer.invoke('exportCard', cardId, templateId, options),
   exportAllCards: (projectId, templateId, options) => ipcRenderer.invoke('exportAllCards', projectId, templateId, options),
   showInFolder: (target) => ipcRenderer.invoke('showInFolder', target),
+  chooseCardArt: (projectId) => ipcRenderer.invoke('chooseCardArt', projectId),
+  importCardArt: (projectId, sourcePath) => ipcRenderer.invoke('importCardArt', projectId, sourcePath),
+  getImageThumbnail: (projectId, imagePath) => ipcRenderer.invoke('getImageThumbnail', projectId, imagePath),
   // Window close guard (see main.js): register, get asked on close, then confirm.
   onCloseRequested: (callback) => {
     const listener = () => callback();

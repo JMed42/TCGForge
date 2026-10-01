@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const templates = require('./templates');
+const art = require('./art');
 const { renderCard, yieldToEventLoop, warmUp } = require('./render');
 const { toPng, toJpeg, writePdf } = require('./exporters');
 
@@ -189,6 +190,26 @@ function registerCardDesignerIpc(ipcMain, deps) {
       elapsedMs: Date.now() - started,
     };
   });
+
+  // ── Card art ──
+  ipcMain.handle('chooseCardArt', async (_, projectId) => {
+    const res = await dialog.showOpenDialog(getWindow(), {
+      title: 'Choose card art',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: art.ART_EXTENSIONS }],
+    });
+    if (res.canceled || !res.filePaths[0]) return { canceled: true };
+    const imagePath = await art.importCardArt(userDataPath, projectId, res.filePaths[0]);
+    return { path: imagePath, thumbnail: await art.thumbnail(userDataPath, projectId, imagePath) };
+  });
+
+  // Same as chooseCardArt without the dialog (tests, and drag-and-drop later).
+  ipcMain.handle('importCardArt', async (_, projectId, sourcePath) => {
+    const imagePath = await art.importCardArt(userDataPath, projectId, sourcePath);
+    return { path: imagePath, thumbnail: await art.thumbnail(userDataPath, projectId, imagePath) };
+  });
+
+  ipcMain.handle('getImageThumbnail', (_, projectId, imagePath) => art.thumbnail(userDataPath, projectId, imagePath));
 
   ipcMain.handle('showInFolder', (_, target) => {
     if (!target) return;
