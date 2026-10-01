@@ -1,11 +1,14 @@
-// Template JSON files on disk: {userData}/projects/{projectId}/templates/{id}.json
-// Assets referenced by templates resolve relative to that templates folder
-// (assets/…, assets/fonts/…). No database table until Phase 1.
+// Template helpers. Template JSON lives in the `templates` table (electron/database.js);
+// this module covers what stays on disk:
+//   {userData}/projects/{projectId}/templates/   asset root: assets/…, assets/fonts/…
+//   {userData}/projects/{projectId}/art/         card art copied in by the card editor
+// plus reading Phase 0 template files for the one-time import (migration v2).
 
 const fs = require('fs');
 const path = require('path');
 
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const FILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const MAX_TEMPLATE_PX = 8000;
 
 function slugify(value) {
   return String(value || '')
@@ -18,15 +21,15 @@ function slugify(value) {
     .replace(/^[_-]+|[_-]+$/g, '');
 }
 
-function assertId(id) {
-  if (!ID_RE.test(String(id))) throw new Error(`invalid template id "${id}"`);
-  return String(id);
-}
-
-function templatesDir(userDataPath, projectId) {
+function projectDir(userDataPath, projectId) {
   const pid = Number(projectId);
   if (!Number.isInteger(pid) || pid <= 0) throw new Error(`invalid project id "${projectId}"`);
-  return path.join(userDataPath, 'projects', String(pid), 'templates');
+  return path.join(userDataPath, 'projects', String(pid));
+}
+
+// Asset root for a project's templates (relative asset paths in template JSON resolve here).
+function templatesDir(userDataPath, projectId) {
+  return path.join(projectDir(userDataPath, projectId), 'templates');
 }
 
 function blankTemplate(name) {
@@ -38,54 +41,49 @@ function blankTemplate(name) {
       {
         id: 'card-name', type: 'text', value: '{{name}}',
         x: 40, y: 40, width: 664, height: 60,
-        font: 'sans-serif', fontSize: 36, color: '#ffffff',
+        font: 'Segoe UI Semibold', fontSize: 36, color: '#ffffff',
         align: 'left', valign: 'middle', overflow: 'shrink', zIndex: 10,
       },
     ],
   };
 }
 
-function readTemplate(dir, id) {
-  const file = path.join(dir, `${assertId(id)}.json`);
-  const raw = fs.readFileSync(file, 'utf8');
-  return { id, dir, file, template: JSON.parse(raw), raw };
+// Structural check for template JSON coming from the editor or the DB. Data only — nothing
+// in a template is ever executed.
+function validateTemplateObject(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw new Error('template must be a JSON object');
+  const meta = obj.meta;
+  if (!meta || typeof meta !== 'object') throw new Error('template.meta is required');
+  for (const key of ['width', 'height', 'dpi']) {
+    const n = Number(meta[key]);
+    if (!Number.isFinite(n) || n <= 0) throw new Error(`template.meta.${key} must be a positive number`);
+  }
+  if (Number(meta.width) > MAX_TEMPLATE_PX || Number(meta.height) > MAX_TEMPLATE_PX) {
+    throw new Error(`template size is limited to ${MAX_TEMPLATE_PX}×${MAX_TEMPLATE_PX} px`);
+  }
+  if (obj.layers !== undefined && !Array.isArray(obj.layers)) throw new Error('template.layers must be an array');
+  return obj;
 }
 
-function listTemplates(userDataPath, projectId) {
+// Phase 0 template files, for the migration import.
+function listTemplateFiles(userDataPath, projectId) {
   const dir = templatesDir(userDataPath, projectId);
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir)
-    .filter((f) => f.endsWith('.json') && ID_RE.test(f.slice(0, -5)))
+    .filter((f) => f.endsWith('.json') && FILE_ID_RE.test(f.slice(0, -5)))
     .sort()
     .map((f) => {
       const id = f.slice(0, -5);
+      const content = fs.readFileSync(path.join(dir, f), 'utf8');
       try {
-        const { template, raw } = readTemplate(dir, id);
-        return { id, name: (template.meta && template.meta.name) || id, content: raw, error: null };
+        const template = validateTemplateObject(JSON.parse(content));
+        return { id, name: (template.meta && template.meta.name) || id, content, error: null };
       } catch (err) {
-        const raw = fs.readFileSync(path.join(dir, f), 'utf8');
-        return { id, name: id, content: raw, error: err.message };
+        return { id, name: id, content, error: err.message };
       }
     });
 }
 
-// template may be an object or a JSON string. Returns the saved list entry.
-function saveTemplate(userDataPath, projectId, template, id) {
-  const obj = typeof template === 'string' ? JSON.parse(template) : template;
-  if (!obj || typeof obj !== 'object' || !obj.meta) throw new Error('template must be an object with meta');
-  const dir = templatesDir(userDataPath, projectId);
-  const tid = assertId(id || slugify(obj.meta.name) || 'template');
-  fs.mkdirSync(path.join(dir, 'assets', 'fonts'), { recursive: true });
-  const content = JSON.stringify(obj, null, 2);
-  fs.writeFileSync(path.join(dir, `${tid}.json`), content, 'utf8');
-  return { id: tid, name: obj.meta.name || tid, content, error: null };
-}
-
-function deleteTemplate(userDataPath, projectId, id) {
-  const file = path.join(templatesDir(userDataPath, projectId), `${assertId(id)}.json`);
-  if (fs.existsSync(file)) fs.unlinkSync(file);
-}
-
 module.exports = {
-  slugify, templatesDir, blankTemplate, readTemplate, listTemplates, saveTemplate, deleteTemplate,
+  slugify, projectDir, templatesDir, blankTemplate, validateTemplateObject, listTemplateFiles, MAX_TEMPLATE_PX,
 };

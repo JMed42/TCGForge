@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
-const { initDatabase, registerIpcHandlers, queryCards, getCard } = require('./database');
+const database = require('./database');
+const { initDatabase, registerIpcHandlers } = database;
 const { registerCardDesignerIpc } = require('./cardDesigner/ipc');
 const { migrateLegacyData } = require('./legacyData');
 
@@ -58,8 +59,13 @@ app.whenReady().then(async () => {
     registerIpcHandlers(ipcMain);
     registerCardDesignerIpc(ipcMain, {
       userDataPath: app.getPath('userData'),
-      getCard,
-      queryCards,
+      getCard: database.getCard,
+      queryCards: database.queryCards,
+      listTemplates: database.listTemplates,
+      getTemplate: database.getTemplate,
+      insertTemplate: database.insertTemplate,
+      updateTemplate: database.updateTemplate,
+      deleteTemplate: database.deleteTemplate,
       dialog,
       shell,
       getWindow: () => mainWindow,

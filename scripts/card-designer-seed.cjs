@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { initDatabase, registerIpcHandlers } = require('../electron/database');
+const { initDatabase, registerIpcHandlers, insertTemplate } = require('../electron/database');
 const { DB_FILE } = require('../electron/legacyData');
 const templates = require('../electron/cardDesigner/templates');
 const { generateAssets } = require('../electron/cardDesigner/fixtures/generateAssets');
@@ -31,9 +31,9 @@ async function main() {
   if (fs.existsSync(sysFont)) fs.copyFileSync(sysFont, path.join(dir, 'assets', 'fonts', 'Scribe-Bold.ttf'));
 
   for (const card of sampleCards(art)) call('createCard', project.id, card);
-  for (const [id, file] of [['standard', 'standard.json'], ['fit-matrix', 'fit-matrix.json']]) {
+  for (const file of ['standard.json', 'fit-matrix.json']) {
     const tpl = JSON.parse(fs.readFileSync(path.join(__dirname, '../electron/cardDesigner/fixtures', file), 'utf8'));
-    templates.saveTemplate(userData, project.id, tpl, id);
+    insertTemplate(project.id, tpl.meta.name, JSON.stringify(tpl, null, 2));
   }
   console.log(JSON.stringify({ userData, projectId: project.id, templatesDir: dir }));
 }

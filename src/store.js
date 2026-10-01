@@ -348,7 +348,7 @@ export const useStore = create((set, get) => ({
     try {
       const { activeProjectId } = get()
       if (!activeProjectId) return
-      await window.api?.deleteTemplate?.(activeProjectId, id)
+      await window.api?.deleteTemplate?.(id)
       await get().loadTemplates()
     } catch (error) {
       console.error('Failed to delete template:', error)

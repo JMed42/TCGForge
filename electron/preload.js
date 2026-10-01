@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('api', {
   getTemplates: (projectId) => ipcRenderer.invoke('getTemplates', projectId),
   createTemplate: (projectId, name) => ipcRenderer.invoke('createTemplate', projectId, name),
   saveTemplate: (projectId, template, id) => ipcRenderer.invoke('saveTemplate', projectId, template, id),
-  deleteTemplate: (projectId, id) => ipcRenderer.invoke('deleteTemplate', projectId, id),
+  deleteTemplate: (id) => ipcRenderer.invoke('deleteTemplate', id),
   renderCard: (cardId, templateId, options) => ipcRenderer.invoke('renderCard', cardId, templateId, options),
   exportCard: (cardId, templateId, options) => ipcRenderer.invoke('exportCard', cardId, templateId, options),
   exportAllCards: (projectId, templateId, options) => ipcRenderer.invoke('exportAllCards', projectId, templateId, options),

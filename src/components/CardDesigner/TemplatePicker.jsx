@@ -33,7 +33,7 @@ export default function TemplatePicker() {
         </label>
         <select
           value={activeTemplateId || ''}
-          onChange={(e) => setActiveTemplate(e.target.value || null)}
+          onChange={(e) => setActiveTemplate(e.target.value ? Number(e.target.value) : null)}
           className="w-full px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
         >
           {templates.length === 0 && <option value="">No templates yet</option>}

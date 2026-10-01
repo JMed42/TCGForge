@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { DB_FILE } = require('./legacyData');
+const { runMigrations } = require('./migrations');
 
 let db;
 let dbPath;
@@ -109,7 +110,18 @@ async function initDatabase(userDataPath) {
     CREATE INDEX IF NOT EXISTS idx_docs_parent ON documents(parent_id);
   `);
 
+  const migration = runMigrations(db, {
+    dbPath,
+    userDataPath,
+    log: (msg) => console.log(`[migrations] ${msg}`),
+  });
+  if (migration.applied.length) {
+    console.log(`[migrations] ${migration.from} -> ${migration.to}: ${migration.applied.join(', ')}` +
+      (migration.backup ? ` (backup: ${migration.backup})` : ''));
+  }
+
   saveDatabase();
+  return migration;
 }
 
 // Tags are stored as one comma-separated TEXT value ("dragon,fire"). The UI works with
@@ -161,6 +173,31 @@ function getCard(id) {
   return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
 }
 
+// ── TEMPLATES (Card Designer) ─────────────────────────────
+// content is the template JSON as text; validation happens in the Card Designer IPC layer.
+
+function listTemplates(projectId) {
+  return queryAll('SELECT * FROM templates WHERE project_id = ? ORDER BY name, id', [projectId]);
+}
+
+function getTemplate(id) {
+  return queryOne('SELECT * FROM templates WHERE id = ?', [id]);
+}
+
+function insertTemplate(projectId, name, content) {
+  const id = run('INSERT INTO templates (project_id, name, content) VALUES (?, ?, ?)', [projectId, name, content]);
+  return getTemplate(id);
+}
+
+function updateTemplate(id, name, content) {
+  run("UPDATE templates SET name = ?, content = ?, updated_at = datetime('now') WHERE id = ?", [name, content, id]);
+  return getTemplate(id);
+}
+
+function deleteTemplate(id) {
+  run('DELETE FROM templates WHERE id = ?', [id]);
+}
+
 function registerIpcHandlers(ipcMain) {
   // ── PROJECTS ──────────────────────────────────────────────
 
@@ -204,6 +241,7 @@ function registerIpcHandlers(ipcMain) {
     for (const c of cards) run('DELETE FROM cards WHERE id = ?', [c.id]);
     const docs = queryAll('SELECT id FROM documents WHERE project_id = ?', [id]);
     for (const d of docs) run('DELETE FROM documents WHERE id = ?', [d.id]);
+    run('DELETE FROM templates WHERE project_id = ?', [id]);
     run('DELETE FROM projects WHERE id = ?', [id]);
   });
 
@@ -386,4 +424,7 @@ function registerIpcHandlers(ipcMain) {
   });
 }
 
-module.exports = { initDatabase, registerIpcHandlers, queryCards, getCard, tagList, normalizeCardData };
+module.exports = {
+  initDatabase, registerIpcHandlers, queryCards, getCard, tagList, normalizeCardData,
+  listTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
+};

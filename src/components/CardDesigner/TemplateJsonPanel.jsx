@@ -37,7 +37,7 @@ export default function TemplateJsonPanel() {
     <div className="w-80 min-w-[220px] flex-shrink bg-surface-1 border-l border-border flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 border-b border-border">
         <span className="text-xs font-medium text-text-secondary uppercase tracking-wide">
-          {active.id}.json{dirty ? ' •' : ''}
+          {active.name}{dirty ? ' •' : ''}
         </span>
         <button
           onClick={handleSave}
