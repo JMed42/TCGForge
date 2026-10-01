@@ -1,0 +1,30 @@
+import { useEffect } from 'react'
+import { useStore } from './store'
+import Sidebar from './components/Layout/Sidebar'
+import ProjectSelector from './components/Projects/ProjectSelector'
+import CardDatabase from './components/CardDatabase'
+import RulesWorkspace from './components/RulesWorkspace'
+import ProjectSettings from './components/ProjectSettings'
+
+export default function App() {
+  const { activeProjectId, activeView, loadProjects } = useStore()
+
+  useEffect(() => {
+    loadProjects()
+  }, [loadProjects])
+
+  if (!activeProjectId) {
+    return <ProjectSelector />
+  }
+
+  return (
+    <div className="flex h-screen bg-surface-0">
+      <Sidebar />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {activeView === 'cards' && <CardDatabase />}
+        {activeView === 'rules' && <RulesWorkspace />}
+        {activeView === 'settings' && <ProjectSettings />}
+      </div>
+    </div>
+  )
+}

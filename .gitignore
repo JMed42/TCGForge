@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+
+# Local data (the app keeps its database in the OS user-data folder; never commit one)
+*.db
+*.db-journal
+
+# Card Designer spike / seed output
+spike-out/
+
+# Logs and OS / editor clutter
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
