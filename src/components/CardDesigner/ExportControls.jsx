@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Download, Images, FolderOpen, X, ChevronDown } from 'lucide-react'
+import { Download, Images, FolderOpen, X, ChevronDown, Printer } from 'lucide-react'
 import { useStore } from '../../store'
+import PrintSheetsDialog from './PrintSheetsDialog'
 
 const SINGLE_OPTIONS = [
   { label: 'Web preview — PNG 96 dpi', format: 'png', dpi: 96 },
@@ -13,6 +14,7 @@ export default function ExportControls() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [status, setStatus] = useState(null)
   const [batch, setBatch] = useState(null) // { running, current, total, result }
+  const [sheetsOpen, setSheetsOpen] = useState(false)
 
   useEffect(() => {
     return window.api?.onExportProgress?.((p) => setBatch((b) => (b ? { ...b, ...p } : b)))
@@ -76,6 +78,16 @@ export default function ExportControls() {
           </div>
         )}
       </div>
+
+      <button
+        onClick={() => setSheetsOpen(true)}
+        disabled={disabled}
+        className="flex items-center gap-2 px-3 py-1.5 bg-surface-2 hover:bg-surface-3 disabled:opacity-40 rounded-lg text-sm text-text-primary"
+      >
+        <Printer size={16} />
+        Print Sheets…
+      </button>
+      {sheetsOpen && <PrintSheetsDialog onClose={() => setSheetsOpen(false)} />}
 
       <button
         onClick={exportAll}

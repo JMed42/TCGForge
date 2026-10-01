@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const templates = require('./templates');
 const art = require('./art');
+const sheets = require('./sheets');
 const { renderCard, yieldToEventLoop, warmUp } = require('./render');
 const { toPng, toJpeg, writePdf } = require('./exporters');
 
@@ -189,6 +190,70 @@ function registerCardDesignerIpc(ipcMain, deps) {
       outputDir,
       elapsedMs: Date.now() - started,
     };
+  });
+
+  // ── Print sheets ──
+  const sheetLayoutFor = (template, options) => {
+    const card = sheets.cardSizeMm(template);
+    const bleedMm = Math.max(0, Math.min(10, Number(options.bleedMm) || 0));
+    return sheets.layoutSheet({ paper: options.paper || 'letter', cardWidthMm: card.width, cardHeightMm: card.height, bleedMm });
+  };
+
+  ipcMain.handle('getSheetLayout', (_, templateId, options = {}) => {
+    const { template } = loadTemplate(templateId, options.draft);
+    return sheetLayoutFor(template, options);
+  });
+
+  // options: { paper, bleedMm, cropMarks, copies, filter, draft, outputPath }
+  ipcMain.handle('exportPrintSheets', async (event, projectId, templateId, options = {}) => {
+    const { row, template, assetDirs } = loadTemplate(templateId, options.draft);
+    if (row.project_id !== projectId) throw new Error(`template ${templateId} not found in project ${projectId}`);
+    const layout = sheetLayoutFor(template, options);
+    if (layout.perPage < 1) throw new Error('this card size does not fit on the chosen paper');
+    const copies = Math.max(1, Math.min(99, Math.floor(Number(options.copies) || 1)));
+    const cards = queryCards(projectId, options.filter || {});
+    if (cards.length === 0) throw new Error('no cards match the current filter');
+
+    let outPath = options.outputPath;
+    if (!outPath) {
+      const res = await dialog.showSaveDialog(getWindow(), {
+        defaultPath: `${templates.slugify(template.meta.name) || 'cards'}-${layout.paper}-sheets.pdf`,
+        filters: [FORMATS.pdf.filter],
+      });
+      if (res.canceled || !res.filePath) return { canceled: true };
+      outPath = res.filePath;
+    }
+
+    const sender = event.sender;
+    const errors = [];
+    const started = Date.now();
+    let lastIndex = -1;
+    let lastImage = null;
+    const imageAt = async (i) => {
+      const index = Math.floor(i / copies);
+      if (index === lastIndex) return lastImage;
+      lastIndex = index;
+      const card = cards[index];
+      try {
+        const { canvas, warnings } = await renderCard(card, template, { dpi: 300, bleedMm: layout.bleedMm, ...assetDirs });
+        for (const w of warnings) errors.push(`card ${card.id} "${card.name}": warning: ${w}`);
+        lastImage = toJpeg(canvas, 0.92); // opaque print raster, far smaller than PNG in the PDF
+      } catch (err) {
+        errors.push(`card ${card.id} "${card.name}": ${err.message}`);
+        lastImage = null;
+      }
+      await yieldToEventLoop();
+      return lastImage;
+    };
+
+    const total = cards.length * copies;
+    const { pages } = await sheets.writeSheetsPdf(layout, total, imageAt, {
+      outPath,
+      cropMarks: options.cropMarks !== false,
+      title: `${template.meta.name || 'Cards'} — print sheets`,
+      onProgress: (i, count) => { if (!sender.isDestroyed()) sender.send('exportProgress', { current: i + 1, total: count }); },
+    });
+    return { path: outPath, pages, cards: cards.length, copies, perPage: layout.perPage, layout, errors, elapsedMs: Date.now() - started };
   });
 
   // ── Card art ──

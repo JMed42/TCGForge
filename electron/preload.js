@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('api', {
   exportCard: (cardId, templateId, options) => ipcRenderer.invoke('exportCard', cardId, templateId, options),
   exportAllCards: (projectId, templateId, options) => ipcRenderer.invoke('exportAllCards', projectId, templateId, options),
   showInFolder: (target) => ipcRenderer.invoke('showInFolder', target),
+  getSheetLayout: (templateId, options) => ipcRenderer.invoke('getSheetLayout', templateId, options),
+  exportPrintSheets: (projectId, templateId, options) => ipcRenderer.invoke('exportPrintSheets', projectId, templateId, options),
   chooseCardArt: (projectId) => ipcRenderer.invoke('chooseCardArt', projectId),
   importCardArt: (projectId, sourcePath) => ipcRenderer.invoke('importCardArt', projectId, sourcePath),
   getImageThumbnail: (projectId, imagePath) => ipcRenderer.invoke('getImageThumbnail', projectId, imagePath),
