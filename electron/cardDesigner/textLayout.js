@@ -60,12 +60,24 @@ function layoutText(ctx, text, box, { fontSize, overflow, lineHeight = LINE_HEIG
 
   if (overflow !== 'shrink') return fit(fontSize);
 
+  // Largest size on the grid fontSize, fontSize - 0.5, … (> floor), or the floor itself, whose
+  // layout fits. Fitting is monotonic in size, so binary search over the grid gives the same
+  // answer as stepping down one notch at a time, in O(log n) layouts instead of O(n).
   const floor = Math.min(minSize, fontSize);
-  for (let size = fontSize; size > floor; size -= 0.5) {
-    const result = fit(size);
-    if (!result.overflows) return result;
+  const steps = Math.max(0, Math.ceil((fontSize - floor) / 0.5) - 1); // grid indices 0..steps
+  const sizeAt = (k) => fontSize - 0.5 * k;
+  const first = fit(fontSize);
+  if (!first.overflows || fontSize <= floor) return first;
+  let lo = 1;
+  let hi = steps;
+  let best = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const result = fit(sizeAt(mid));
+    if (result.overflows) lo = mid + 1;
+    else { best = result; hi = mid - 1; }
   }
-  return fit(floor);
+  return best || fit(floor);
 }
 
 module.exports = { layoutText, wrapLines, LINE_HEIGHT };
