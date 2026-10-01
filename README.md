@@ -7,7 +7,8 @@ A lightweight desktop app for trading card game developers. Manage cards, write 
 - **Multi-Project Support** — Switch between unlimited game projects, each with their own cards and documents
 - **Card Database Manager** — Full CRUD with filtering, sorting, tagging, bulk operations, and custom fields
 - **Rules & GDD Editor** — Rich text editor with document tree, folder organization, rule tagging, and cross-referencing
-- **Card Designer** (Phase 0) — JSON card templates rendered to PNG (96/300 dpi) and PDF, with an in-app preview from the same renderer
+- **Card Designer** — Visual template editor: drag, resize and snap layers; layer list and property inspector; undo/redo. Bind any card field with `{{field}}`. Export PNG (96/300 dpi), PDF, all cards at once, or print-and-play sheets (Letter/A4, bleed, crop marks). The on-screen card is pixel-identical to the export.
+- **Card Art** — Attach art in the card editor. Images are copied into the project.
 - **SQLite Storage** — Fast local database with JSON import/export for portability
 - **Dark Theme** — Purpose-built dark interface designed for long sessions
 
@@ -26,6 +27,12 @@ npm run dev
 ```
 
 This starts both the Vite dev server and Electron. The app window will open automatically once the dev server is ready.
+
+Run the tests with:
+
+```bash
+npm test
+```
 
 ## Build for Production
 
