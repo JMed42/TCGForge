@@ -25,7 +25,7 @@ export default function CardEditor() {
       setFormData({
         name: editingCard.name || '',
         type: editingCard.type || '',
-        set: editingCard.set || '',
+        set_name: editingCard.set_name || '',
         rarity: editingCard.rarity || '',
         cost: editingCard.cost || '',
         power: editingCard.power || '',
@@ -34,7 +34,7 @@ export default function CardEditor() {
         flavor_text: editingCard.flavor_text || '',
         tags: editingCard.tags || [],
         notes: editingCard.notes || '',
-        ...(editingCard.custom_fields || {}),
+        custom_fields: editingCard.custom_fields || {},
       });
       setTagInput('');
     }
@@ -47,7 +47,7 @@ export default function CardEditor() {
   }, [cards]);
 
   const setSuggestions = useMemo(() => {
-    const sets = new Set(cards.map((c) => c.set).filter(Boolean));
+    const sets = new Set(cards.map((c) => c.set_name).filter(Boolean));
     return Array.from(sets).sort();
   }, [cards]);
 
@@ -202,8 +202,8 @@ export default function CardEditor() {
                   <input
                     type="text"
                     list="set-suggestions"
-                    value={formData.set || ''}
-                    onChange={(e) => handleChange('set', e.target.value)}
+                    value={formData.set_name || ''}
+                    onChange={(e) => handleChange('set_name', e.target.value)}
                     placeholder="e.g. Alpha, Beta"
                     className="w-full px-3 py-2 bg-surface-2 border border-border rounded text-text-primary placeholder-text-muted focus:outline-none focus:border-accent transition-colors"
                   />

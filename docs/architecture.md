@@ -103,13 +103,23 @@ scripts/card-designer-spike.mjs   headless render/fit/export check
 - `electron/database.js` exports `queryCards(projectId, filters)` and `getCard(id)`. The designer's batch export uses the same filtered list as the Card Database view.
 - Dev tooling: `node --expose-gc scripts/card-designer-spike.mjs --out <dir>` runs the headless render checks. `node scripts/card-designer-seed.cjs <dir>` followed by `electron . --user-data-dir=<dir>` gives a throwaway profile with sample data.
 
-## Known defects / gaps (pre-existing, not fixed in Phase 0)
+## Card data shape (DB vs UI)
 
-1. `ProjectSettings.jsx` and `ProjectForm.jsx` read `project.cardSchema`, but the DB returns `card_schema` (a JSON string). The schema editor always shows the default value or `{}`.
-2. `CardEditor.jsx` spreads `editingCard.custom_fields`, which is a JSON string, into form state, producing keys `0,1,2…`.
-3. `CardEditor.jsx` reads and writes `set`, but the DB column is `set_name`, so set names never round-trip.
-4. Sidebar "Export Project" calls `exportProject` and discards the JSON; there's no save dialog.
-5. **`CardTable.jsx:304` crashes the whole app** (blank window) when any card has tags. It calls `card.tags.slice(0, 2).map`, but the DB stores `tags` as a comma string. `CardFilters.jsx` also treats `tags` as an array, while `getCards` does `tags LIKE %…%`.
-6. `CardFilters.jsx` reads `card.set` for the set dropdown; the column is `set_name`.
-7. `index.css` scrollbar rules reference `--color-surface-*` CSS variables that are never defined.
-8. There's no test runner, linter or git repository.
+The DB stores `tags` as one comma-separated TEXT value and `custom_fields` / `card_schema` as JSON text. The UI works with an array and objects:
+
+- **Reads:** `src/utils/cardData.js` converts rows as they enter the store (`toUiCard`, `toUiProject`, which adds `cardSchema`).
+- **Writes:** `normalizeCardData` in `electron/database.js` converts back on create, update and import. Without it, sql.js would store an array as a zero-filled BLOB.
+- **Tag filter:** `queryCards` matches whole tags, case-insensitively, and requires all of them.
+- The set column is `set_name` everywhere in the UI. The `cardFilters.set` key maps to it in `queryCards`.
+
+## Running the app
+
+- `StartTCGForge.cmd`: double-click launcher. It installs dependencies on first run, then `npm start` (Vite and Electron together, no DevTools). Closing the app window stops Vite and closes the console.
+- `npm run dev`: development mode with DevTools.
+
+## Known defects / gaps
+
+1. Sidebar "Export Project" calls `exportProject` and discards the JSON; there's no save dialog.
+2. The card editor's custom-fields section never renders: its schema lookup is stubbed to `[]`. Existing `custom_fields` values are preserved on save.
+3. `index.css` scrollbar rules reference `--color-surface-*` CSS variables that are never defined.
+4. There's no test runner or linter.

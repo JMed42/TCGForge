@@ -112,6 +112,24 @@ async function initDatabase(userDataPath) {
   saveDatabase();
 }
 
+// Tags are stored as one comma-separated TEXT value ("dragon,fire"). The UI works with
+// arrays; sql.js would silently store an array as a zero-filled BLOB, so every write path
+// normalises through here.
+function tagList(value) {
+  if (Array.isArray(value)) return value.map((t) => String(t).trim()).filter(Boolean);
+  if (typeof value === 'string') return value.split(',').map((t) => t.trim()).filter(Boolean);
+  return [];
+}
+
+function normalizeCardData(data) {
+  const out = { ...data };
+  if (out.tags !== undefined) out.tags = tagList(out.tags).join(',');
+  if (out.custom_fields !== undefined && typeof out.custom_fields !== 'string') {
+    out.custom_fields = JSON.stringify(out.custom_fields || {});
+  }
+  return out;
+}
+
 // Cards for a project, applying the Card Database filter object. Shared with the Card Designer
 // batch export so "export all" uses exactly the list the user sees.
 function queryCards(projectId, filters = {}) {
@@ -125,7 +143,11 @@ function queryCards(projectId, filters = {}) {
   if (filters.type)   { sql += ' AND type = ?';     params.push(filters.type); }
   if (filters.set)    { sql += ' AND set_name = ?';  params.push(filters.set); }
   if (filters.rarity) { sql += ' AND rarity = ?';   params.push(filters.rarity); }
-  if (filters.tags)   { sql += ' AND tags LIKE ?';  params.push(`%${filters.tags}%`); }
+  // Every requested tag must be one of the card's comma-separated tags (case-insensitive).
+  for (const tag of tagList(filters.tags)) {
+    sql += " AND (',' || REPLACE(tags, ', ', ',') || ',') LIKE ? ESCAPE '\\'";
+    params.push(`%,${tag.replace(/[\\%_]/g, (c) => `\\${c}`)},%`);
+  }
 
   const colMap = { name: 'name', type: 'type', set: 'set_name', cost: 'cost', created: 'created_at', updated: 'updated_at' };
   const sortCol = colMap[filters.sortBy] || 'name';
@@ -195,21 +217,22 @@ function registerIpcHandlers(ipcMain) {
     return getCard(id);
   });
 
-  ipcMain.handle('createCard', (_, projectId, data) => {
+  ipcMain.handle('createCard', (_, projectId, input) => {
+    const data = normalizeCardData(input);
     const id = run(
       `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
         rules_text, flavor_text, tags, custom_fields, notes, image_path)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [projectId, data.name, data.type || '', data.set_name || '', data.rarity || '',
        data.cost || '', data.power || '', data.toughness || '', data.rules_text || '',
-       data.flavor_text || '', data.tags || '',
-       typeof data.custom_fields === 'string' ? data.custom_fields : JSON.stringify(data.custom_fields || {}),
+       data.flavor_text || '', data.tags || '', data.custom_fields || '{}',
        data.notes || '', data.image_path || '']
     );
     return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
   });
 
-  ipcMain.handle('updateCard', (_, id, data) => {
+  ipcMain.handle('updateCard', (_, id, input) => {
+    const data = normalizeCardData(input);
     const allowed = ['name','type','set_name','rarity','cost','power','toughness',
                      'rules_text','flavor_text','tags','custom_fields','notes','image_path'];
     const fields = [];
@@ -333,7 +356,8 @@ function registerIpcHandlers(ipcMain) {
       idMap[doc.id] = newDocId;
     }
 
-    for (const card of (data.cards || [])) {
+    for (const rawCard of (data.cards || [])) {
+      const card = normalizeCardData(rawCard);
       run(
         `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
           rules_text, flavor_text, tags, custom_fields, notes, image_path)
@@ -362,4 +386,4 @@ function registerIpcHandlers(ipcMain) {
   });
 }
 
-module.exports = { initDatabase, registerIpcHandlers, queryCards, getCard };
+module.exports = { initDatabase, registerIpcHandlers, queryCards, getCard, tagList, normalizeCardData };

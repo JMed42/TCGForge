@@ -22,7 +22,7 @@ export default function CardFilters() {
   }, [cards]);
 
   const uniqueSets = useMemo(() => {
-    const sets = new Set(cards.map((c) => c.set).filter(Boolean));
+    const sets = new Set(cards.map((c) => c.set_name).filter(Boolean));
     return Array.from(sets).sort();
   }, [cards]);
 

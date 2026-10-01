@@ -60,7 +60,7 @@ export default function CardTable() {
       }
 
       if (cardFilters.type && card.type !== cardFilters.type) return false;
-      if (cardFilters.set && card.set !== cardFilters.set) return false;
+      if (cardFilters.set && card.set_name !== cardFilters.set) return false;
       if (cardFilters.rarity && card.rarity !== cardFilters.rarity) return false;
 
       if (cardFilters.tags && cardFilters.tags.length > 0) {
@@ -214,7 +214,7 @@ export default function CardTable() {
                 <SortHeader label="Type" sortKey="type" />
               </th>
               <th className="px-4 py-3 text-left">
-                <SortHeader label="Set" sortKey="set" />
+                <SortHeader label="Set" sortKey="set_name" />
               </th>
               <th className="px-4 py-3 text-left">
                 <SortHeader label="Rarity" sortKey="rarity" />
@@ -269,7 +269,7 @@ export default function CardTable() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-text-secondary">
-                    {card.set || '—'}
+                    {card.set_name || '—'}
                   </td>
                   <td className="px-4 py-3">
                     {card.rarity && (

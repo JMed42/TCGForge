@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { toUiCard, toUiProject } from './utils/cardData'
 
 export const useStore = create((set, get) => ({
   // Projects
@@ -24,7 +25,7 @@ export const useStore = create((set, get) => ({
     type: '',
     set: '',
     rarity: '',
-    tags: '',
+    tags: [],
     sortBy: 'name',
     sortDir: 'ASC',
   },
@@ -39,7 +40,7 @@ export const useStore = create((set, get) => ({
   loadProjects: async () => {
     try {
       const projects = await window.api?.getProjects?.()
-      set({ projects: projects || [] })
+      set({ projects: (projects || []).map(toUiProject) })
     } catch (error) {
       console.error('Failed to load projects:', error)
       set({ projects: [] })
@@ -103,7 +104,7 @@ export const useStore = create((set, get) => ({
         return
       }
       const cards = await window.api?.getCards?.(activeProjectId, cardFilters)
-      set({ cards: cards || [] })
+      set({ cards: (cards || []).map(toUiCard) })
     } catch (error) {
       console.error('Failed to load cards:', error)
       set({ cards: [] })
