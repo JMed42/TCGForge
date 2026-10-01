@@ -1,0 +1,54 @@
+{
+  "meta": {
+    "name": "Fit Matrix",
+    "version": "1",
+    "width": 744,
+    "height": 1039,
+    "dpi": 300
+  },
+  "cornerRadius": 24,
+  "background": { "color": "#f4f4f8" },
+  "layers": [
+    { "id": "title", "type": "text", "value": "Fit matrix — {{name}}", "x": 24, "y": 16, "width": 696, "height": 44, "font": "Scribe Bold", "fontSize": 28, "color": "#1a1a2e", "align": "center", "valign": "middle", "overflow": "shrink" },
+
+    { "id": "l-cover", "type": "text", "value": "image cover · center", "x": 24, "y": 64, "width": 340, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-cover", "type": "shape", "shape": "rect", "x": 24, "y": 88, "width": 340, "height": 180, "stroke": "#e5484d", "strokeWidth": 2, "zIndex": 5 },
+    { "id": "i-cover", "type": "image", "source": "assets/art-wide.png", "x": 24, "y": 88, "width": 340, "height": 180, "fit": "cover", "align": "center center" },
+
+    { "id": "l-cover-lt", "type": "text", "value": "image cover · left top (portrait src)", "x": 380, "y": 64, "width": 340, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-cover-lt", "type": "shape", "shape": "rect", "x": 380, "y": 88, "width": 340, "height": 180, "stroke": "#e5484d", "strokeWidth": 2, "zIndex": 5 },
+    { "id": "i-cover-lt", "type": "image", "source": "assets/art-tall.png", "x": 380, "y": 88, "width": 340, "height": 180, "fit": "cover", "align": "left top" },
+
+    { "id": "l-contain", "type": "text", "value": "image contain (letterbox)", "x": 24, "y": 280, "width": 340, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-contain", "type": "shape", "shape": "rect", "x": 24, "y": 304, "width": 340, "height": 180, "fill": "#d8d8e4", "stroke": "#e5484d", "strokeWidth": 2, "zIndex": -1 },
+    { "id": "i-contain", "type": "image", "source": "assets/art-tall.png", "x": 24, "y": 304, "width": 340, "height": 180, "fit": "contain", "align": "center center" },
+
+    { "id": "l-stretch", "type": "text", "value": "image stretch (distorts)", "x": 380, "y": 280, "width": 340, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-stretch", "type": "shape", "shape": "rect", "x": 380, "y": 304, "width": 340, "height": 180, "stroke": "#e5484d", "strokeWidth": 2, "zIndex": 5 },
+    { "id": "i-stretch", "type": "image", "source": "assets/art-tall.png", "x": 380, "y": 304, "width": 340, "height": 180, "fit": "stretch" },
+
+    { "id": "l-tile", "type": "text", "value": "image tile (native size, 48 px tile)", "x": 24, "y": 496, "width": 696, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-tile", "type": "shape", "shape": "rect", "x": 24, "y": 520, "width": 696, "height": 110, "stroke": "#e5484d", "strokeWidth": 2, "zIndex": 5 },
+    { "id": "i-tile", "type": "image", "source": "assets/tile.png", "x": 24, "y": 520, "width": 696, "height": 110, "fit": "tile", "cornerRadius": 18 },
+
+    { "id": "l-shrink", "type": "text", "value": "text shrink (36 px requested)", "x": 24, "y": 642, "width": 340, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-shrink", "type": "shape", "shape": "rect", "x": 24, "y": 666, "width": 340, "height": 110, "fill": "#ffffff", "stroke": "#e5484d", "strokeWidth": 2, "zIndex": -1 },
+    { "id": "t-shrink", "type": "text", "value": "{{rules_text}}", "x": 24, "y": 666, "width": 340, "height": 110, "font": "Georgia", "fontSize": 36, "color": "#1a1a2e", "valign": "middle", "overflow": "shrink" },
+
+    { "id": "l-clip", "type": "text", "value": "text clip (no wrap, hard edge)", "x": 380, "y": 642, "width": 340, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-clip", "type": "shape", "shape": "rect", "x": 380, "y": 666, "width": 340, "height": 110, "fill": "#ffffff", "stroke": "#e5484d", "strokeWidth": 2, "zIndex": -1 },
+    { "id": "t-clip", "type": "text", "value": "{{rules_text}}", "x": 380, "y": 666, "width": 340, "height": 110, "font": "Georgia", "fontSize": 26, "color": "#1a1a2e", "valign": "middle", "overflow": "clip" },
+
+    { "id": "l-wrap", "type": "text", "value": "text wrap (26 px, overflow clipped at bottom)", "x": 24, "y": 788, "width": 696, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-wrap", "type": "shape", "shape": "rect", "x": 24, "y": 812, "width": 696, "height": 110, "fill": "#ffffff", "stroke": "#e5484d", "strokeWidth": 2, "zIndex": -1 },
+    { "id": "t-wrap", "type": "text", "value": "{{rules_text}} {{flavor_text}}", "x": 24, "y": 812, "width": 696, "height": 110, "font": "Georgia", "fontSize": 26, "color": "#1a1a2e", "valign": "top", "overflow": "wrap" },
+
+    { "id": "l-align", "type": "text", "value": "align left / center / right · valign top / middle / bottom", "x": 24, "y": 934, "width": 696, "height": 22, "font": "Segoe UI Semibold", "fontSize": 15, "color": "#5c6078" },
+    { "id": "b-a1", "type": "shape", "shape": "rect", "x": 24, "y": 958, "width": 224, "height": 60, "fill": "#ffffff", "stroke": "#e5484d", "strokeWidth": 2, "zIndex": -1 },
+    { "id": "t-a1", "type": "text", "value": "left · top", "x": 24, "y": 958, "width": 224, "height": 60, "font": "Segoe UI", "fontSize": 18, "color": "#1a1a2e", "align": "left", "valign": "top" },
+    { "id": "b-a2", "type": "shape", "shape": "rect", "x": 260, "y": 958, "width": 224, "height": 60, "fill": "#ffffff", "stroke": "#e5484d", "strokeWidth": 2, "zIndex": -1 },
+    { "id": "t-a2", "type": "text", "value": "center · middle", "x": 260, "y": 958, "width": 224, "height": 60, "font": "Segoe UI", "fontSize": 18, "color": "#1a1a2e", "align": "center", "valign": "middle" },
+    { "id": "b-a3", "type": "shape", "shape": "rect", "x": 496, "y": 958, "width": 224, "height": 60, "fill": "#ffffff", "stroke": "#e5484d", "strokeWidth": 2, "zIndex": -1 },
+    { "id": "t-a3", "type": "text", "value": "right · bottom", "x": 496, "y": 958, "width": 224, "height": 60, "font": "Segoe UI", "fontSize": 18, "color": "#1a1a2e", "align": "right", "valign": "bottom" }
+  ]
+}

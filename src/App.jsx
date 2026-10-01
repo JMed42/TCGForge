@@ -5,6 +5,7 @@ import ProjectSelector from './components/Projects/ProjectSelector'
 import CardDatabase from './components/CardDatabase'
 import RulesWorkspace from './components/RulesWorkspace'
 import ProjectSettings from './components/ProjectSettings'
+import { DesignerView } from './components/CardDesigner'
 
 export default function App() {
   const { activeProjectId, activeView, loadProjects } = useStore()
@@ -22,6 +23,7 @@ export default function App() {
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         {activeView === 'cards' && <CardDatabase />}
+        {activeView === 'designer' && <DesignerView />}
         {activeView === 'rules' && <RulesWorkspace />}
         {activeView === 'settings' && <ProjectSettings />}
       </div>

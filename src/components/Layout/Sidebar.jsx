@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store'
 import {
   Database,
+  Layers,
   BookOpen,
   Settings,
   Download,
@@ -31,6 +32,7 @@ export default function Sidebar() {
 
   const navItems = [
     { icon: Database, label: 'Cards', view: 'cards' },
+    { icon: Layers, label: 'Designer', view: 'designer' },
     { icon: BookOpen, label: 'Rules & Docs', view: 'rules' },
     { icon: Settings, label: 'Settings', view: 'settings' },
   ]

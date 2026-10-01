@@ -111,6 +111,33 @@ async function initDatabase(userDataPath) {
   saveDatabase();
 }
 
+// Cards for a project, applying the Card Database filter object. Shared with the Card Designer
+// batch export so "export all" uses exactly the list the user sees.
+function queryCards(projectId, filters = {}) {
+  let sql = 'SELECT * FROM cards WHERE project_id = ?';
+  const params = [projectId];
+
+  if (filters.search) {
+    sql += ' AND (name LIKE ? OR rules_text LIKE ?)';
+    params.push(`%${filters.search}%`, `%${filters.search}%`);
+  }
+  if (filters.type)   { sql += ' AND type = ?';     params.push(filters.type); }
+  if (filters.set)    { sql += ' AND set_name = ?';  params.push(filters.set); }
+  if (filters.rarity) { sql += ' AND rarity = ?';   params.push(filters.rarity); }
+  if (filters.tags)   { sql += ' AND tags LIKE ?';  params.push(`%${filters.tags}%`); }
+
+  const colMap = { name: 'name', type: 'type', set: 'set_name', cost: 'cost', created: 'created_at', updated: 'updated_at' };
+  const sortCol = colMap[filters.sortBy] || 'name';
+  const sortDir = filters.sortDir === 'DESC' ? 'DESC' : 'ASC';
+  sql += ` ORDER BY ${sortCol} ${sortDir}`;
+
+  return queryAll(sql, params);
+}
+
+function getCard(id) {
+  return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
+}
+
 function registerIpcHandlers(ipcMain) {
   // ── PROJECTS ──────────────────────────────────────────────
 
@@ -160,28 +187,11 @@ function registerIpcHandlers(ipcMain) {
   // ── CARDS ─────────────────────────────────────────────────
 
   ipcMain.handle('getCards', (_, projectId, filters = {}) => {
-    let sql = 'SELECT * FROM cards WHERE project_id = ?';
-    const params = [projectId];
-
-    if (filters.search) {
-      sql += ' AND (name LIKE ? OR rules_text LIKE ?)';
-      params.push(`%${filters.search}%`, `%${filters.search}%`);
-    }
-    if (filters.type)   { sql += ' AND type = ?';     params.push(filters.type); }
-    if (filters.set)    { sql += ' AND set_name = ?';  params.push(filters.set); }
-    if (filters.rarity) { sql += ' AND rarity = ?';   params.push(filters.rarity); }
-    if (filters.tags)   { sql += ' AND tags LIKE ?';  params.push(`%${filters.tags}%`); }
-
-    const colMap = { name: 'name', type: 'type', set: 'set_name', cost: 'cost', created: 'created_at', updated: 'updated_at' };
-    const sortCol = colMap[filters.sortBy] || 'name';
-    const sortDir = filters.sortDir === 'DESC' ? 'DESC' : 'ASC';
-    sql += ` ORDER BY ${sortCol} ${sortDir}`;
-
-    return queryAll(sql, params);
+    return queryCards(projectId, filters);
   });
 
   ipcMain.handle('getCard', (_, id) => {
-    return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
+    return getCard(id);
   });
 
   ipcMain.handle('createCard', (_, projectId, data) => {
@@ -351,4 +361,4 @@ function registerIpcHandlers(ipcMain) {
   });
 }
 
-module.exports = { initDatabase, registerIpcHandlers };
+module.exports = { initDatabase, registerIpcHandlers, queryCards, getCard };

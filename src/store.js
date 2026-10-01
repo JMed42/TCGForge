@@ -6,7 +6,15 @@ export const useStore = create((set, get) => ({
   activeProjectId: null,
 
   // Navigation
-  activeView: 'cards', // 'cards' | 'rules' | 'settings'
+  activeView: 'cards', // 'cards' | 'designer' | 'rules' | 'settings'
+
+  // Card Designer
+  templates: [],
+  activeTemplateId: null,
+  previewCardId: null,
+  preview: null, // { dataUrl, width, height, warnings } | { error }
+  previewZoom: 2,
+  renderState: 'idle', // 'idle' | 'rendering' | 'error'
 
   // Cards
   cards: [],
@@ -39,7 +47,14 @@ export const useStore = create((set, get) => ({
   },
 
   setActiveProject: async (id) => {
-    set({ activeProjectId: id, activeView: 'cards' })
+    set({
+      activeProjectId: id,
+      activeView: 'cards',
+      templates: [],
+      activeTemplateId: null,
+      previewCardId: null,
+      preview: null,
+    })
     await get().loadCards()
     await get().loadDocuments()
   },
@@ -259,6 +274,106 @@ export const useStore = create((set, get) => ({
       newExpanded.add(id)
     }
     set({ expandedFolders: newExpanded })
+  },
+
+  // ===== Card Designer =====
+  loadTemplates: async () => {
+    try {
+      const { activeProjectId, activeTemplateId } = get()
+      if (!activeProjectId) {
+        set({ templates: [] })
+        return
+      }
+      const templates = (await window.api?.getTemplates?.(activeProjectId)) || []
+      const stillThere = templates.some((t) => t.id === activeTemplateId)
+      set({
+        templates,
+        activeTemplateId: stillThere ? activeTemplateId : templates[0]?.id ?? null,
+      })
+    } catch (error) {
+      console.error('Failed to load templates:', error)
+      set({ templates: [] })
+    }
+  },
+
+  setActiveTemplate: (id) => {
+    set({ activeTemplateId: id })
+  },
+
+  setPreviewCard: (id) => {
+    set({ previewCardId: id })
+  },
+
+  setPreviewZoom: (zoom) => {
+    set({ previewZoom: zoom })
+  },
+
+  createTemplate: async (name) => {
+    try {
+      const { activeProjectId } = get()
+      if (!activeProjectId) return null
+      const saved = await window.api?.createTemplate?.(activeProjectId, name)
+      await get().loadTemplates()
+      if (saved?.id) set({ activeTemplateId: saved.id })
+      return null
+    } catch (error) {
+      console.error('Failed to create template:', error)
+      return error.message
+    }
+  },
+
+  // content is the raw JSON text from the editor. Returns an error message or null.
+  saveTemplate: async (content) => {
+    const { activeProjectId, activeTemplateId } = get()
+    if (!activeProjectId || !activeTemplateId) return 'No template selected'
+    let parsed
+    try {
+      parsed = JSON.parse(content)
+    } catch (error) {
+      return `Invalid JSON: ${error.message}`
+    }
+    try {
+      await window.api?.saveTemplate?.(activeProjectId, parsed, activeTemplateId)
+      await get().loadTemplates()
+      await get().renderPreview()
+      return null
+    } catch (error) {
+      console.error('Failed to save template:', error)
+      return error.message
+    }
+  },
+
+  deleteTemplate: async (id) => {
+    try {
+      const { activeProjectId } = get()
+      if (!activeProjectId) return
+      await window.api?.deleteTemplate?.(activeProjectId, id)
+      await get().loadTemplates()
+    } catch (error) {
+      console.error('Failed to delete template:', error)
+    }
+  },
+
+  // Renders the preview card through the main-process renderer (same path as export).
+  // dpi = 96 × zoom × devicePixelRatio so the <img> is shown at its natural pixel size.
+  renderPreview: async () => {
+    const { activeTemplateId, previewCardId, previewZoom } = get()
+    if (!activeTemplateId || !previewCardId) {
+      set({ preview: null, renderState: 'idle' })
+      return
+    }
+    set({ renderState: 'rendering' })
+    try {
+      const dpi = 96 * previewZoom * (window.devicePixelRatio || 1)
+      const result = await window.api?.renderCard?.(previewCardId, activeTemplateId, { dpi })
+      // Ignore stale results if the selection changed mid-render.
+      const now = get()
+      if (now.activeTemplateId !== activeTemplateId || now.previewCardId !== previewCardId || now.previewZoom !== previewZoom) return
+      set({ preview: { ...result, dpi }, renderState: 'idle' })
+    } catch (error) {
+      console.error('Failed to render card:', error)
+      set({ preview: { error: error.message }, renderState: 'error' })
+    }
   },
 
   // ===== Navigation =====

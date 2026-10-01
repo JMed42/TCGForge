@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
-const { initDatabase, registerIpcHandlers } = require('./database');
+const { initDatabase, registerIpcHandlers, queryCards, getCard } = require('./database');
+const { registerCardDesignerIpc } = require('./cardDesigner/ipc');
 
 // Detect dev mode without needing electron-is-dev
 const isDev = !app.isPackaged;
@@ -43,6 +44,14 @@ app.whenReady().then(async () => {
   try {
     await initDatabase(app.getPath('userData'));
     registerIpcHandlers(ipcMain);
+    registerCardDesignerIpc(ipcMain, {
+      userDataPath: app.getPath('userData'),
+      getCard,
+      queryCards,
+      dialog,
+      shell,
+      getWindow: () => mainWindow,
+    });
     createWindow();
   } catch (err) {
     console.error('Failed to initialize database:', err);

@@ -30,4 +30,19 @@ contextBridge.exposeInMainWorld('api', {
   exportProject: (projectId) => ipcRenderer.invoke('exportProject', projectId),
   importProject: (jsonData) => ipcRenderer.invoke('importProject', jsonData),
   exportCards: (projectId, format) => ipcRenderer.invoke('exportCards', projectId, format),
+
+  // Card Designer
+  getTemplates: (projectId) => ipcRenderer.invoke('getTemplates', projectId),
+  createTemplate: (projectId, name) => ipcRenderer.invoke('createTemplate', projectId, name),
+  saveTemplate: (projectId, template, id) => ipcRenderer.invoke('saveTemplate', projectId, template, id),
+  deleteTemplate: (projectId, id) => ipcRenderer.invoke('deleteTemplate', projectId, id),
+  renderCard: (cardId, templateId, options) => ipcRenderer.invoke('renderCard', cardId, templateId, options),
+  exportCard: (cardId, templateId, options) => ipcRenderer.invoke('exportCard', cardId, templateId, options),
+  exportAllCards: (projectId, templateId, options) => ipcRenderer.invoke('exportAllCards', projectId, templateId, options),
+  showInFolder: (target) => ipcRenderer.invoke('showInFolder', target),
+  onExportProgress: (callback) => {
+    const listener = (_, progress) => callback(progress);
+    ipcRenderer.on('exportProgress', listener);
+    return () => ipcRenderer.removeListener('exportProgress', listener);
+  },
 });

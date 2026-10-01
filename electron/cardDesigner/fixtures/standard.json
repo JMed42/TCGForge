@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "name": "Standard Card",
+    "version": "1",
+    "width": 744,
+    "height": 1039,
+    "dpi": 300
+  },
+  "cornerRadius": 32,
+  "background": {
+    "color": "#1a1a2e",
+    "image": "assets/bg-tile.png",
+    "fit": "tile"
+  },
+  "layers": [
+    { "id": "frame", "type": "shape", "shape": "rect", "x": 14, "y": 14, "width": 716, "height": 1011, "cornerRadius": 22, "stroke": "#c9a96e", "strokeWidth": 4, "zIndex": 2 },
+
+    { "id": "name-bar", "type": "shape", "shape": "rect", "x": 32, "y": 32, "width": 680, "height": 76, "cornerRadius": 14, "fill": "#26263f", "stroke": "#c9a96e", "strokeWidth": 2, "zIndex": 5 },
+    { "id": "card-name", "type": "text", "value": "{{name}}", "x": 52, "y": 36, "width": 576, "height": 68, "font": "Georgia Bold", "fontSize": 40, "color": "#f3e9d2", "align": "left", "valign": "middle", "overflow": "shrink", "zIndex": 10 },
+    { "id": "cost-badge", "type": "shape", "shape": "circle", "x": 644, "y": 38, "width": 64, "height": 64, "fill": "#7c6ef0", "stroke": "#ffffff", "strokeWidth": 3, "zIndex": 12 },
+    { "id": "cost-text", "type": "text", "value": "{{cost}}", "x": 644, "y": 38, "width": 64, "height": 64, "font": "Segoe UI Bold", "fontSize": 32, "color": "#ffffff", "align": "center", "valign": "middle", "overflow": "shrink", "zIndex": 13 },
+
+    { "id": "art-frame", "type": "shape", "shape": "rect", "x": 32, "y": 122, "width": 680, "height": 504, "cornerRadius": 12, "fill": "#0b0b14", "stroke": "#c9a96e", "strokeWidth": 2, "zIndex": 3 },
+    { "id": "card-art", "type": "image", "source": "{{image_path}}", "x": 38, "y": 128, "width": 668, "height": 492, "fit": "cover", "align": "center top", "cornerRadius": 8, "opacity": 1.0, "zIndex": 4 },
+
+    { "id": "type-bar", "type": "shape", "shape": "rect", "x": 32, "y": 640, "width": 680, "height": 56, "cornerRadius": 12, "fill": "#26263f", "stroke": "#c9a96e", "strokeWidth": 2, "zIndex": 5 },
+    { "id": "type-line", "type": "text", "value": "{{type}} — {{rarity}}", "x": 52, "y": 644, "width": 500, "height": 48, "font": "Georgia Bold", "fontSize": 26, "color": "#e4e6f0", "align": "left", "valign": "middle", "overflow": "shrink", "zIndex": 10 },
+    { "id": "element", "type": "text", "value": "{{element}}", "x": 560, "y": 644, "width": 132, "height": 48, "font": "Segoe UI Semibold", "fontSize": 22, "color": "#c9a96e", "align": "right", "valign": "middle", "overflow": "shrink", "zIndex": 10 },
+
+    { "id": "text-box", "type": "shape", "shape": "rect", "x": 32, "y": 710, "width": 680, "height": 206, "cornerRadius": 12, "fill": "#f3ecdc", "opacity": 0.96, "zIndex": 5 },
+    { "id": "rules", "type": "text", "value": "{{rules_text}}", "x": 52, "y": 722, "width": 640, "height": 118, "font": "Georgia", "fontSize": 26, "color": "#1a1a2e", "align": "left", "valign": "top", "overflow": "shrink", "zIndex": 10 },
+    { "id": "flavor", "type": "text", "value": "{{flavor_text}}", "x": 52, "y": 846, "width": 640, "height": 62, "font": "Georgia Italic", "fontSize": 20, "color": "#5a5468", "align": "left", "valign": "bottom", "overflow": "wrap", "zIndex": 10 },
+
+    { "id": "footer", "type": "text", "value": "{{set_name}} · {{rarity}} · #{{id}}", "x": 40, "y": 950, "width": 520, "height": 44, "font": "Segoe UI", "fontSize": 18, "color": "#8b8fa8", "align": "left", "valign": "middle", "overflow": "clip", "zIndex": 10 },
+    { "id": "pt-badge", "type": "shape", "shape": "rect", "x": 572, "y": 930, "width": 140, "height": 72, "cornerRadius": 16, "fill": "#26263f", "stroke": "#c9a96e", "strokeWidth": 3, "zIndex": 14 },
+    { "id": "pt-text", "type": "text", "value": "{{power}} / {{toughness}}", "x": 572, "y": 930, "width": 140, "height": 72, "font": "Segoe UI Bold", "fontSize": 34, "color": "#ffffff", "align": "center", "valign": "middle", "overflow": "shrink", "zIndex": 15 }
+  ]
+}
