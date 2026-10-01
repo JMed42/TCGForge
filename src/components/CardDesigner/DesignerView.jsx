@@ -6,6 +6,7 @@ import TemplatePicker from './TemplatePicker'
 import PreviewCanvas from './PreviewCanvas'
 import TemplateJsonPanel from './TemplateJsonPanel'
 import ExportControls from './ExportControls'
+import { deleteLayer, duplicateLayer, findLayer, updateLayer } from './editor/templateOps'
 
 const isTypingTarget = (el) => el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
 
@@ -45,20 +46,44 @@ export default function DesignerView() {
     setSaveError(await saveDraft())
   }
 
-  // Editor-wide shortcuts. Ctrl+S works everywhere; undo/redo leave text fields alone.
+  // Editor-wide shortcuts. Ctrl+S works everywhere; the rest leave text fields alone.
   useEffect(() => {
     const onKeyDown = (e) => {
+      const state = useStore.getState()
       const mod = e.ctrlKey || e.metaKey
-      if (!mod) return
       const key = e.key.toLowerCase()
-      if (key === 's') {
+      if (mod && key === 's') {
         e.preventDefault()
-        if (useStore.getState().dirty) handleSave()
+        if (state.dirty) handleSave()
         return
       }
       if (isTypingTarget(document.activeElement)) return
-      if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
-      else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo() }
+      if (mod && key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return }
+      if (mod && ((key === 'z' && e.shiftKey) || key === 'y')) { e.preventDefault(); redo(); return }
+
+      const layer = state.draft && state.selectedLayerId && findLayer(state.draft, state.selectedLayerId)
+      if (!layer) return
+      if (e.key === 'Escape') { state.selectLayer(null); return }
+      if (mod && key === 'd') {
+        e.preventDefault()
+        const result = duplicateLayer(state.draft, layer.id)
+        state.edit(() => result.template, { select: result.id })
+        return
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault()
+        state.edit((t) => deleteLayer(t, layer.id), { select: null })
+        return
+      }
+      const step = e.shiftKey ? 10 : 1
+      const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key]
+      if (nudge && !layer.locked) {
+        e.preventDefault()
+        state.edit(
+          (t) => updateLayer(t, layer.id, { x: (Number(layer.x) || 0) + nudge[0], y: (Number(layer.y) || 0) + nudge[1] }),
+          { key: `nudge:${layer.id}` },
+        )
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
