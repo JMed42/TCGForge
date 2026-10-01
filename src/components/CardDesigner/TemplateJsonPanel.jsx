@@ -1,56 +1,60 @@
 import { useEffect, useState } from 'react'
-import { Save } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { useStore } from '../../store'
 
-// Phase 0 editor: raw template JSON. Replaced by the layer editor in Phase 1.
+// Advanced: edit the draft as raw template JSON. Apply replaces the draft as one undo step;
+// saving is the editor's normal Save.
 export default function TemplateJsonPanel() {
-  const { templates, activeTemplateId, saveTemplate } = useStore()
+  const { draft, draftError, templates, activeTemplateId, applyJson } = useStore()
   const active = templates.find((t) => t.id === activeTemplateId)
-  const [text, setText] = useState('')
+  const source = draft ? JSON.stringify(draft, null, 2) : active?.content || ''
+  const [text, setText] = useState(source)
   const [error, setError] = useState(null)
-  const [dirty, setDirty] = useState(false)
+  const [edited, setEdited] = useState(false)
+
+  // Follow the draft (visual edits, undo) unless the user has unapplied typing here.
+  useEffect(() => {
+    if (!edited) setText(source)
+  }, [source, edited])
 
   useEffect(() => {
-    setText(active?.content || '')
-    setError(active?.error ? `File has invalid JSON: ${active.error}` : null)
-    setDirty(false)
-  }, [active?.id, active?.content])
+    setEdited(false)
+    setError(draftError ? `Stored template has invalid JSON: ${draftError}` : null)
+  }, [activeTemplateId, draftError])
 
-  const handleSave = async () => {
-    const err = await saveTemplate(text)
+  const handleApply = () => {
+    const err = applyJson(text)
     setError(err)
-    if (!err) setDirty(false)
+    if (!err) setEdited(false)
   }
 
   const handleKeyDown = (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault()
-      handleSave()
+      handleApply()
     }
+    e.stopPropagation() // keep editor shortcuts (Delete, arrows, Ctrl+Z) out of the textarea
   }
 
-  if (!active) {
-    return <div className="w-80 min-w-[220px] flex-shrink bg-surface-1 border-l border-border" />
-  }
+  if (!active) return null
 
   return (
-    <div className="w-80 min-w-[220px] flex-shrink bg-surface-1 border-l border-border flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 border-b border-border">
-        <span className="text-xs font-medium text-text-secondary uppercase tracking-wide">
-          {active.name}{dirty ? ' •' : ''}
-        </span>
+        <span className="text-xs text-text-muted">{edited ? 'Unapplied changes' : 'In sync with the editor'}</span>
         <button
-          onClick={handleSave}
-          disabled={!dirty}
+          onClick={handleApply}
+          disabled={!edited}
+          title="Apply (Ctrl+Enter)"
           className="flex items-center gap-1.5 px-2.5 py-1 bg-accent hover:brightness-110 disabled:opacity-40 disabled:hover:brightness-100 rounded text-white text-xs font-medium"
         >
-          <Save size={14} />
-          Save &amp; render
+          <Check size={14} />
+          Apply
         </button>
       </div>
       <textarea
         value={text}
-        onChange={(e) => { setText(e.target.value); setDirty(true) }}
+        onChange={(e) => { setText(e.target.value); setEdited(true) }}
         onKeyDown={handleKeyDown}
         spellCheck={false}
         className="flex-1 p-4 bg-surface-1 text-text-primary font-mono text-xs leading-5 resize-none focus:outline-none"

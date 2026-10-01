@@ -9,7 +9,7 @@ const SINGLE_OPTIONS = [
 ]
 
 export default function ExportControls() {
-  const { activeProjectId, activeTemplateId, previewCardId, cardFilters } = useStore()
+  const { activeProjectId, activeTemplateId, previewCardId, cardFilters, draft } = useStore()
   const [menuOpen, setMenuOpen] = useState(false)
   const [status, setStatus] = useState(null)
   const [batch, setBatch] = useState(null) // { running, current, total, result }
@@ -22,7 +22,7 @@ export default function ExportControls() {
     setMenuOpen(false)
     setStatus(null)
     try {
-      const res = await window.api.exportCard(previewCardId, activeTemplateId, { format: opt.format, dpi: opt.dpi })
+      const res = await window.api.exportCard(previewCardId, activeTemplateId, { format: opt.format, dpi: opt.dpi, draft })
       if (res?.canceled) return
       setStatus({
         path: res.path,
@@ -40,6 +40,7 @@ export default function ExportControls() {
         format: 'png',
         dpi: 300,
         filter: cardFilters,
+        draft, // export what the editor shows, saved or not
       })
       if (result?.canceled) { setBatch(null); return }
       setBatch({ running: false, result })
@@ -48,7 +49,7 @@ export default function ExportControls() {
     }
   }
 
-  const disabled = !activeTemplateId
+  const disabled = !activeTemplateId || !draft
   return (
     <>
       <div className="relative">
