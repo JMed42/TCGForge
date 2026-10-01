@@ -5,6 +5,8 @@ import TopBar from '../Layout/TopBar'
 import TemplatePicker from './TemplatePicker'
 import PreviewCanvas from './PreviewCanvas'
 import TemplateJsonPanel from './TemplateJsonPanel'
+import LayerPanel from './LayerPanel'
+import LayerInspector from './LayerInspector'
 import ExportControls from './ExportControls'
 import { deleteLayer, duplicateLayer, findLayer, updateLayer } from './editor/templateOps'
 
@@ -27,6 +29,7 @@ export default function DesignerView() {
     discardDraft,
   } = useStore()
   const [saveError, setSaveError] = useState(null)
+  const [sideTab, setSideTab] = useState('design')
 
   useEffect(() => {
     loadTemplates()
@@ -126,7 +129,25 @@ export default function DesignerView() {
         <TemplatePicker />
         <PreviewCanvas />
         <div className="w-80 min-w-[260px] flex-shrink bg-surface-1 border-l border-border flex flex-col overflow-hidden">
-          <TemplateJsonPanel />
+          <div className="flex border-b border-border">
+            {[['design', 'Design'], ['json', 'JSON']].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSideTab(key)}
+                className={`flex-1 py-2 text-xs font-medium ${sideTab === key ? 'text-accent border-b-2 border-accent' : 'text-text-secondary hover:text-text-primary'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {sideTab === 'design' ? (
+            <>
+              <LayerPanel />
+              <LayerInspector />
+            </>
+          ) : (
+            <TemplateJsonPanel />
+          )}
         </div>
       </div>
     </div>
