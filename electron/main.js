@@ -31,7 +31,8 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    // StartTCGForge.cmd sets TCGFORGE_NO_DEVTOOLS for an everyday window; `npm run dev` keeps them.
+    if (!process.env.TCGFORGE_NO_DEVTOOLS) mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }

@@ -13,6 +13,10 @@ A lightweight desktop app for trading card game developers. Manage cards, write 
 
 ## Quick Start
 
+**Double-click `StartTCGForge.cmd`.** On first run it installs dependencies, then opens the app. Closing the app window shuts everything down.
+
+For development (with DevTools):
+
 ```bash
 # Install dependencies
 npm install

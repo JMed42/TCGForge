@@ -5,6 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "start": "concurrently -k -s first -n vite,app \"vite --strictPort\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build && electron-builder",
     "preview": "vite preview"
   },
