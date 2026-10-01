@@ -14,7 +14,7 @@ export default function ProjectSelector() {
         <div className="text-center mb-12">
           <div className="flex items-center justify-center gap-3 mb-4">
             <Layers size={40} className="text-accent" />
-            <h1 className="text-4xl font-bold text-text-primary">TCG Studio</h1>
+            <h1 className="text-4xl font-bold text-text-primary">TCGForge</h1>
           </div>
           <p className="text-text-secondary text-lg">
             Select a project or create a new one

@@ -1,4 +1,6 @@
-# TCG Studio — Architecture
+# TCGForge — Architecture
+
+(Formerly TCG Studio.)
 
 Snapshot of the codebase as of the Card Designer Phase 0 spike (2026-09). Describes what the code
 actually does, which in a few places differs from the README.
@@ -43,7 +45,8 @@ actually does, which in a few places differs from the README.
 
 ## Data layer (`electron/database.js`)
 
-- sql.js loads the whole file `{userData}/tcg-studio.db` into memory at startup.
+- sql.js loads the whole file `{userData}/tcgforge.db` into memory at startup.
+- `userData` is pinned to `{appData}/TCGForge` in `main.js`, so dev and packaged builds share it. An explicit `--user-data-dir` overrides this. On first launch, `electron/legacyData.js` copies (never moves) `tcg-studio.db` and `projects/` from the old `tcg-studio` / `TCG Studio` folders.
 - Helpers: `queryAll`, `queryOne`, and `run`. **`run` exports and rewrites the entire DB file on every write** (`saveDatabase`). Bulk operations such as `bulkDeleteCards`, `deleteProject` and `importProject` loop `run`, so they rewrite the file once per row. That's fine at current sizes, but it's a scaling hazard.
 - Schema is created with `CREATE TABLE IF NOT EXISTS` in `initDatabase`. **There are no migrations or `user_version`.** Any column change needs a migration mechanism first (Phase 1).
 - There are no foreign keys; cascades are done by hand (`deleteProject`, recursive `deleteDocument`).
@@ -109,5 +112,4 @@ scripts/card-designer-spike.mjs   headless render/fit/export check
 5. **`CardTable.jsx:304` crashes the whole app** (blank window) when any card has tags. It calls `card.tags.slice(0, 2).map`, but the DB stores `tags` as a comma string. `CardFilters.jsx` also treats `tags` as an array, while `getCards` does `tags LIKE %…%`.
 6. `CardFilters.jsx` reads `card.set` for the set dropdown; the column is `set_name`.
 7. `index.css` scrollbar rules reference `--color-surface-*` CSS variables that are never defined.
-8. The README claims better-sqlite3.
-9. There's no test runner, linter or git repository.
+8. There's no test runner, linter or git repository.

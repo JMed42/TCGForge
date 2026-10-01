@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { initDatabase, registerIpcHandlers } = require('../electron/database');
+const { DB_FILE } = require('../electron/legacyData');
 const templates = require('../electron/cardDesigner/templates');
 const { generateAssets } = require('../electron/cardDesigner/fixtures/generateAssets');
 const { sampleCards } = require('../electron/cardDesigner/fixtures/sampleCards');
@@ -13,8 +14,8 @@ const { sampleCards } = require('../electron/cardDesigner/fixtures/sampleCards')
 async function main() {
   const userData = path.resolve(process.argv[2] || '');
   if (!process.argv[2]) throw new Error('usage: node scripts/card-designer-seed.cjs <userDataDir>');
-  if (fs.existsSync(path.join(userData, 'tcg-studio.db'))) {
-    throw new Error(`${userData} already has a tcg-studio.db — refusing to seed over it`);
+  if (fs.existsSync(path.join(userData, DB_FILE))) {
+    throw new Error(`${userData} already has a ${DB_FILE} — refusing to seed over it`);
   }
   fs.mkdirSync(userData, { recursive: true });
   await initDatabase(userData);

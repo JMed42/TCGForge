@@ -31,7 +31,7 @@ function writePdf(canvas, template, outPath, dpi) {
       size: [widthPt, heightPt],
       margin: 0,
       autoFirstPage: true,
-      info: { Title: meta.name || 'Card', Creator: 'TCG Studio', Producer: 'TCG Studio (pdfkit)' },
+      info: { Title: meta.name || 'Card', Creator: 'TCGForge', Producer: 'TCGForge (pdfkit)' },
     });
     const stream = fs.createWriteStream(outPath);
     stream.on('finish', () => resolve(outPath));

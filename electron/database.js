@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { DB_FILE } = require('./legacyData');
 
 let db;
 let dbPath;
@@ -50,7 +51,7 @@ async function initDatabase(userDataPath) {
     locateFile: file => path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', file),
   });
 
-  dbPath = path.join(userDataPath, 'tcg-studio.db');
+  dbPath = path.join(userDataPath, DB_FILE);
 
   if (fs.existsSync(dbPath)) {
     const fileBuffer = fs.readFileSync(dbPath);

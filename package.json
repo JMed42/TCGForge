@@ -1,5 +1,5 @@
 {
-  "name": "tcg-studio",
+  "name": "tcgforge",
   "version": "1.0.0",
   "description": "Trading Card Game Development Studio — manage cards, rules, and game design documents",
   "main": "electron/main.js",
@@ -39,8 +39,8 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.tcgstudio.app",
-    "productName": "TCG Studio",
+    "appId": "com.tcgforge.app",
+    "productName": "TCGForge",
     "files": [
       "dist/**/*",
       "electron/**/*"
