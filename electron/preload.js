@@ -40,6 +40,14 @@ contextBridge.exposeInMainWorld('api', {
   exportCard: (cardId, templateId, options) => ipcRenderer.invoke('exportCard', cardId, templateId, options),
   exportAllCards: (projectId, templateId, options) => ipcRenderer.invoke('exportAllCards', projectId, templateId, options),
   showInFolder: (target) => ipcRenderer.invoke('showInFolder', target),
+  // Window close guard (see main.js): register, get asked on close, then confirm.
+  onCloseRequested: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('app-close-requested', listener);
+    ipcRenderer.invoke('closeGuardReady');
+    return () => ipcRenderer.removeListener('app-close-requested', listener);
+  },
+  confirmClose: () => ipcRenderer.invoke('confirmClose'),
   onExportProgress: (callback) => {
     const listener = (_, progress) => callback(progress);
     ipcRenderer.on('exportProgress', listener);

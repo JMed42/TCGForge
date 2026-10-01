@@ -30,6 +30,7 @@ export const designerInitialState = {
   dirty: false,
   selectedLayerId: null,
   history: createHistory(),
+  unsavedPrompt: null, // { proceed, resolve, error } while UnsavedChangesDialog is open
 }
 
 function parseTemplate(content) {
@@ -255,6 +256,42 @@ export function createDesignerSlice(set, get) {
 
     discardDraft: () => {
       get().openTemplate(get().activeTemplateId)
+    },
+
+    // ----- unsaved-changes guard -----
+    // Runs `proceed` now if the draft is clean; otherwise asks via UnsavedChangesDialog.
+    // Resolves to true if `proceed` ran, false if the user cancelled.
+    guardUnsaved: (proceed) => {
+      if (!get().dirty) {
+        proceed()
+        return Promise.resolve(true)
+      }
+      return new Promise((resolve) => {
+        set({ unsavedPrompt: { proceed, resolve, error: null } })
+      })
+    },
+
+    // choice: 'save' | 'discard' | 'cancel'
+    resolveUnsaved: async (choice) => {
+      const prompt = get().unsavedPrompt
+      if (!prompt) return
+      if (choice === 'cancel') {
+        set({ unsavedPrompt: null })
+        prompt.resolve(false)
+        return
+      }
+      if (choice === 'save') {
+        const error = await get().saveDraft()
+        if (error) {
+          set({ unsavedPrompt: { ...prompt, error } })
+          return
+        }
+      } else {
+        get().discardDraft()
+      }
+      set({ unsavedPrompt: null })
+      prompt.proceed()
+      prompt.resolve(true)
     },
   }
 }

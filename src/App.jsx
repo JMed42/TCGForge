@@ -6,6 +6,7 @@ import CardDatabase from './components/CardDatabase'
 import RulesWorkspace from './components/RulesWorkspace'
 import ProjectSettings from './components/ProjectSettings'
 import { DesignerView } from './components/CardDesigner'
+import UnsavedChangesDialog from './components/CardDesigner/UnsavedChangesDialog'
 
 export default function App() {
   const { activeProjectId, activeView, loadProjects } = useStore()
@@ -15,7 +16,12 @@ export default function App() {
   }, [loadProjects])
 
   if (!activeProjectId) {
-    return <ProjectSelector />
+    return (
+      <>
+        <ProjectSelector />
+        <UnsavedChangesDialog />
+      </>
+    )
   }
 
   return (
@@ -27,6 +33,7 @@ export default function App() {
         {activeView === 'rules' && <RulesWorkspace />}
         {activeView === 'settings' && <ProjectSettings />}
       </div>
+      <UnsavedChangesDialog />
     </div>
   )
 }

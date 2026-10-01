@@ -9,6 +9,7 @@ export default function TemplatePicker() {
     setActiveTemplate,
     createTemplate,
     deleteTemplate,
+    guardUnsaved,
     cards,
     previewCardId,
     setPreviewCard,
@@ -20,9 +21,11 @@ export default function TemplatePicker() {
     e.preventDefault()
     const name = (newName || '').trim()
     if (!name) return
-    const err = await createTemplate(name)
-    setError(err)
-    if (!err) setNewName(null)
+    await guardUnsaved(async () => {
+      const err = await createTemplate(name)
+      setError(err)
+      if (!err) setNewName(null)
+    })
   }
 
   return (
@@ -33,7 +36,7 @@ export default function TemplatePicker() {
         </label>
         <select
           value={activeTemplateId || ''}
-          onChange={(e) => setActiveTemplate(e.target.value ? Number(e.target.value) : null)}
+          onChange={(e) => { const id = e.target.value ? Number(e.target.value) : null; guardUnsaved(() => setActiveTemplate(id)) }}
           className="w-full px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent"
         >
           {templates.length === 0 && <option value="">No templates yet</option>}
@@ -55,7 +58,10 @@ export default function TemplatePicker() {
             </button>
             {activeTemplateId && (
               <button
-                onClick={() => deleteTemplate(activeTemplateId)}
+                onClick={() => {
+                  const name = templates.find((t) => t.id === activeTemplateId)?.name || 'this template'
+                  if (window.confirm(`Delete "${name}"? This can't be undone.`)) deleteTemplate(activeTemplateId)
+                }}
                 title="Delete template file"
                 className="px-2 py-1.5 bg-surface-2 hover:bg-surface-3 rounded-lg text-text-muted hover:text-danger"
               >

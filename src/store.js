@@ -43,7 +43,10 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  setActiveProject: async (id) => {
+  // Switching project discards the template draft, so it goes through the unsaved-changes guard.
+  setActiveProject: (id) => get().guardUnsaved(() => get().openProject(id)),
+
+  openProject: async (id) => {
     get().resetDesigner()
     set({ activeProjectId: id, activeView: 'cards' })
     await get().loadCards()
@@ -78,6 +81,7 @@ export const useStore = create((set, get) => ({
       await get().loadProjects()
       const { activeProjectId } = get()
       if (activeProjectId === id) {
+        get().resetDesigner()
         set({ activeProjectId: null, activeView: 'cards' })
       }
     } catch (error) {

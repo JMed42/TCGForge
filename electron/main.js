@@ -15,6 +15,16 @@ if (!app.commandLine.hasSwitch('user-data-dir')) {
 }
 
 let mainWindow;
+let closeGuard = { ready: false, allowClose: false };
+
+ipcMain.handle('closeGuardReady', (event) => {
+  if (mainWindow && event.sender === mainWindow.webContents) closeGuard.ready = true;
+});
+ipcMain.handle('confirmClose', (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  closeGuard.allowClose = true;
+  mainWindow.close();
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -41,6 +51,20 @@ function createWindow() {
   // Show window once ready to avoid white flash
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+  });
+
+  // Unsaved-changes guard: once the renderer has registered its listener, closing the window
+  // asks it first (it may show Save / Discard / Cancel) and it calls confirmClose to proceed.
+  // Before that, or if the renderer is gone, the window closes normally.
+  closeGuard = { ready: false, allowClose: false };
+  mainWindow.on('close', (e) => {
+    if (!closeGuard.ready || closeGuard.allowClose) return;
+    e.preventDefault();
+    mainWindow.webContents.send('app-close-requested');
+  });
+  mainWindow.webContents.on('render-process-gone', () => { closeGuard.ready = false; });
+  mainWindow.webContents.on('did-start-navigation', (_, url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) closeGuard.ready = false; // reloads re-register
   });
 
   mainWindow.on('closed', () => {
