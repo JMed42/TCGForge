@@ -1,0 +1,20 @@
+{
+  // Type-checking only (npm run typecheck). Vite compiles .ts/.tsx for the app and Node runs
+  // .ts directly in tests (type stripping), so nothing is ever emitted.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "types": []
+  },
+  "include": ["src/designer/**/*.ts", "src/designer/**/*.tsx"]
+}
