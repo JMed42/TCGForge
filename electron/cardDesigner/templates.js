@@ -39,7 +39,7 @@ function blankTemplate(name) {
     name: name || 'New Template',
     size: { widthMm: 63, heightMm: 88, bleedMm: 3, safeMm: 3, cornerRadiusMm: 3 },
     layers: [
-      { id: 'background', type: 'shape', shape: 'rect', frame: { left: -3, right: -3, top: -3, bottom: -3 }, fill: '#1a1a2e' },
+      { id: 'background', type: 'shape', shape: 'rect', frame: { left: -3, right: -3, top: -3, bottom: -3 }, fill: '#1a1a2e', locked: true },
       {
         id: 'name', type: 'text', frame: { left: 5, right: 5, top: 5, height: 7 }, text: '{{name}}',
         style: { font: 'Segoe UI', sizePt: 12, weight: 600, color: '#ffffff', valign: 'middle' },

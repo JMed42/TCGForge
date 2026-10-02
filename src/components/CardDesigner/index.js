@@ -1,5 +1,5 @@
 export { default as DesignerView } from './DesignerView'
 export { default as TemplatePicker } from './TemplatePicker'
-export { default as PreviewCanvas } from './PreviewCanvas'
+export { default as DesignerCanvas } from './DesignerCanvas'
 export { default as TemplateJsonPanel } from './TemplateJsonPanel'
 export { default as ExportControls } from './ExportControls'

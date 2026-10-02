@@ -3,7 +3,7 @@ import { Undo2, Redo2, Save, RotateCcw } from 'lucide-react'
 import { useStore } from '../../store'
 import TopBar from '../Layout/TopBar'
 import TemplatePicker from './TemplatePicker'
-import PreviewCanvas from './PreviewCanvas'
+import DesignerCanvas from './DesignerCanvas'
 import TemplateJsonPanel from './TemplateJsonPanel'
 import ExportControls from './ExportControls'
 
@@ -58,7 +58,6 @@ export default function DesignerView() {
       if (isTypingTarget(document.activeElement)) return
       if (mod && key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return }
       if (mod && ((key === 'z' && e.shiftKey) || key === 'y')) { e.preventDefault(); redo(); return }
-
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -99,7 +98,7 @@ export default function DesignerView() {
       )}
       <div className="flex-1 flex overflow-hidden">
         <TemplatePicker />
-        <PreviewCanvas />
+        <DesignerCanvas />
         <div className="w-80 min-w-[260px] flex-shrink bg-surface-1 border-l border-border flex flex-col overflow-hidden">
           <TemplateJsonPanel />
         </div>

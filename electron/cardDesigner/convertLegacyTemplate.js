@@ -109,12 +109,13 @@ function convertLegacyTemplate(old) {
   for (const l of old.layers || []) if (l && ID_RE.test(String(l.id))) reserved.add(String(l.id));
 
   const bg = old.background || {};
-  if (bg.color) layers.push({ id: uniqueId('background', 'background'), type: 'shape', shape: 'rect', frame: { ...fullBleed }, fill: String(bg.color) });
+  // Background layers are locked so clicks on the card pick the content above them.
+  if (bg.color) layers.push({ id: uniqueId('background', 'background'), type: 'shape', shape: 'rect', frame: { ...fullBleed }, fill: String(bg.color), locked: true });
   if (bg.image) {
     const fitMap = { cover: 'cover', contain: 'contain', stretch: 'fill', tile: 'tile' };
     layers.push({
       id: uniqueId('background-image', 'background-image'), type: 'image', frame: { ...fullBleed }, src: String(bg.image),
-      objectFit: fitMap[bg.fit] || 'cover', placeholder: 'none',
+      objectFit: fitMap[bg.fit] || 'cover', placeholder: 'none', locked: true,
     });
   }
 
