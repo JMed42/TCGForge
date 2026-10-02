@@ -37,6 +37,9 @@ test('anchors are inferred so the layout reflows', () => {
   assert.deepEqual(anchorsOf(layer(template, 'cost-badge').frame), { h: 'right', v: 'top' })
   assert.deepEqual(anchorsOf(layer(template, 'pt-badge').frame), { h: 'right', v: 'bottom' })
   assert.deepEqual(anchorsOf(layer(template, 'footer').frame), { h: 'left', v: 'bottom' })
+  // Centred below the middle: travels with the bottom edge on taller cards.
+  assert.deepEqual(anchorsOf(layer(template, 'type-bar').frame), { h: 'stretch', v: 'bottom' })
+  assert.deepEqual(anchorsOf(layer(template, 'card-art').frame), { h: 'stretch', v: 'top' })
   // Positions are preserved at the original size (within rounding).
   const card = { x: 0, y: 0, w: template.size.widthMm, h: template.size.heightMm }
   const pt = resolveFrame(layer(template, 'pt-badge').frame, card)

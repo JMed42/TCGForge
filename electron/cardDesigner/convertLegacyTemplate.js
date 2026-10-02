@@ -4,9 +4,10 @@
 //
 // Anchors are inferred so converted templates reflow sensibly when the card size changes:
 //   wide element with (nearly) equal side margins  -> stretch (left + right)
-//   element centred in the right third             -> right + width
+//   element centred in the right half              -> right + width
 //   otherwise                                      -> left + width
-// and the same vertically (bottom third -> bottom + height).
+// and the same vertically (bottom half -> bottom + height), so everything below the middle
+// travels with the bottom edge when the card gets taller.
 
 const DEFAULT_BLEED_MM = 3;
 const DEFAULT_SAFE_MM = 3;
@@ -55,10 +56,10 @@ function inferFrame(rect, cardW, cardH) {
   const B = cardH - (rect.y + rect.h);
   const frame = {};
   if (rect.w >= 0.6 * cardW && Math.abs(L - R) <= 1) { frame.left = round2(L); frame.right = round2(R); }
-  else if (rect.x + rect.w / 2 > (2 * cardW) / 3) { frame.right = round2(R); frame.width = round2(rect.w); }
+  else if (rect.x + rect.w / 2 > cardW / 2) { frame.right = round2(R); frame.width = round2(rect.w); }
   else { frame.left = round2(L); frame.width = round2(rect.w); }
   if (rect.h >= 0.6 * cardH && Math.abs(T - B) <= 1) { frame.top = round2(T); frame.bottom = round2(B); }
-  else if (rect.y + rect.h / 2 > (2 * cardH) / 3) { frame.bottom = round2(B); frame.height = round2(rect.h); }
+  else if (rect.y + rect.h / 2 > cardH / 2) { frame.bottom = round2(B); frame.height = round2(rect.h); }
   else { frame.top = round2(T); frame.height = round2(rect.h); }
   return frame;
 }
