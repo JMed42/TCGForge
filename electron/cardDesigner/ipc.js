@@ -9,6 +9,7 @@ const art = require('./art');
 const sheets = require('./sheets');
 const { withDpi } = require('./pngDpi');
 const { listProjectFonts } = require('./projectFonts');
+const tcgtemplate = require('./tcgtemplate');
 
 const FORMATS = {
   png: { ext: 'png', filter: { name: 'PNG image', extensions: ['png'] } },
@@ -248,6 +249,64 @@ function registerCardDesignerIpc(ipcMain, deps) {
       path: outPath, pages: pages.length, cards: cards.length, copies, perPage: layout.perPage, layout,
       errors: report ? report.warnings : [], elapsedMs: Date.now() - started,
     };
+  });
+
+  // ── .tcgtemplate export / import ──
+  // options: { draft, outputPath }
+  ipcMain.handle('exportTemplateFile', async (_, templateId, options = {}) => {
+    const { row, template } = loadTemplate(templateId, options.draft);
+    let outPath = options.outputPath;
+    if (!outPath) {
+      const res = await dialog.showSaveDialog(getWindow(), {
+        defaultPath: `${templates.slugify(template.name || row.name) || 'template'}.tcgtemplate`,
+        filters: [{ name: 'TCGForge template', extensions: ['tcgtemplate'] }],
+      });
+      if (res.canceled || !res.filePath) return { canceled: true };
+      outPath = res.filePath;
+    }
+    const pkg = tcgtemplate.buildPackage(userDataPath, row.project_id, { ...template, name: template.name || row.name });
+    fs.writeFileSync(outPath, JSON.stringify(pkg));
+    return { path: outPath, assets: pkg.assets.map((a) => a.path), bytes: fs.statSync(outPath).size };
+  });
+
+  // Step 1: read and check the file; the renderer validates the template (zod) before step 2.
+  const pendingImports = new Map();
+  let importSeq = 0;
+  ipcMain.handle('readTemplateFile', async (_, projectId, options = {}) => {
+    let inPath = options.inputPath;
+    if (!inPath) {
+      const res = await dialog.showOpenDialog(getWindow(), {
+        title: 'Import template',
+        properties: ['openFile'],
+        filters: [{ name: 'TCGForge template', extensions: ['tcgtemplate'] }],
+      });
+      if (res.canceled || !res.filePaths[0]) return { canceled: true };
+      inPath = res.filePaths[0];
+    }
+    if (fs.statSync(inPath).size > 250 * 1024 * 1024) throw new Error('file is larger than 250 MB');
+    const parsed = tcgtemplate.parsePackage(fs.readFileSync(inPath, 'utf8'));
+    const token = `imp-${++importSeq}`;
+    pendingImports.clear(); // only the latest read can be imported
+    pendingImports.set(token, { projectId, parsed });
+    return { token, template: parsed.template, assets: parsed.assets.map((a) => ({ path: a.path, size: a.data.length })) };
+  });
+
+  // Step 2: write assets (never overwriting) and insert the template.
+  ipcMain.handle('importTemplateFile', (_, token) => {
+    const pending = pendingImports.get(token);
+    if (!pending) throw new Error('import expired; open the file again');
+    pendingImports.delete(token);
+    const { projectId, parsed } = pending;
+    const installed = tcgtemplate.installAssets(userDataPath, projectId, parsed);
+    const existing = new Set(deps.listTemplates(projectId).map((t) => t.name));
+    let name = String(installed.template.name || 'Imported template').trim() || 'Imported template';
+    if (existing.has(name)) {
+      name = `${name} (imported)`;
+      for (let n = 2; existing.has(name); n++) name = `${String(installed.template.name).trim()} (imported ${n})`;
+    }
+    const template = { ...installed.template, name };
+    const row = deps.insertTemplate(projectId, name, JSON.stringify(template, null, 2));
+    return { template: templateRowOut(row), written: installed.written, reused: installed.reused, renamed: installed.renamed, warnings: installed.warnings };
   });
 
   // ── Card art ──

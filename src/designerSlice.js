@@ -108,6 +108,46 @@ export function createDesignerSlice(set, get) {
       }
     },
 
+    // ----- .tcgtemplate -----
+    // Export the template as the editor shows it (draft). Returns { message } or { error }.
+    exportTemplateFile: async (options = {}) => {
+      const { activeTemplateId, draft } = get()
+      if (!activeTemplateId || !draft) return { error: 'No template open' }
+      try {
+        const res = await window.api.exportTemplateFile(activeTemplateId, { ...options, draft })
+        if (res.canceled) return {}
+        return { message: `Exported with ${res.assets.length} file${res.assets.length === 1 ? '' : 's'}`, path: res.path }
+      } catch (error) {
+        return { error: ipcMessage(error) }
+      }
+    },
+
+    // Read a .tcgtemplate, validate it with the zod schema, then import it as a new template.
+    // Returns { message } or { error }.
+    importTemplateFile: async (options = {}) => {
+      const { activeProjectId } = get()
+      if (!activeProjectId) return { error: 'No project open' }
+      try {
+        const read = await window.api.readTemplateFile(activeProjectId, options)
+        if (read.canceled) return {}
+        const r = validateTemplate(read.template)
+        if (!r.ok) return { error: `This template can't be imported: ${r.errors.slice(0, 3).join('; ')}` }
+        let result = null
+        const proceeded = await get().guardUnsaved(() => {})
+        if (!proceeded) return {}
+        result = await window.api.importTemplateFile(read.token)
+        await get().loadTemplates()
+        get().openTemplate(result.template.id)
+        const parts = [`Imported "${result.template.name}"`]
+        if (result.written.length) parts.push(`${result.written.length} new file${result.written.length === 1 ? '' : 's'}`)
+        if (result.reused.length) parts.push(`${result.reused.length} already present`)
+        if (result.renamed.length) parts.push(`${result.renamed.length} renamed to avoid overwriting`)
+        return { message: parts.join(' · '), warnings: result.warnings }
+      } catch (error) {
+        return { error: ipcMessage(error) }
+      }
+    },
+
     // ----- sample card -----
     setPreviewCard: (id) => {
       set({ previewCardId: id })
