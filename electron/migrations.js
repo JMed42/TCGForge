@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const templates = require('./cardDesigner/templates');
+const { convertLegacyTemplate, isLegacyTemplate } = require('./cardDesigner/convertLegacyTemplate');
 
 const MIGRATIONS = [
   {
@@ -45,6 +46,29 @@ const MIGRATIONS = [
           existing.add(file.name);
           log(`imported template "${file.name}" into project ${projectId}`);
         }
+      }
+    },
+  },
+  {
+    version: 3,
+    name: 'template schema v1 (mm frames)',
+    // Templates move from the Phase 0 pixel format to the spec's schema v1. The original JSON
+    // is kept in legacy_content; version starts at 1 and bumps on every save.
+    up(db, { log }) {
+      db.run('ALTER TABLE templates ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+      db.run('ALTER TABLE templates ADD COLUMN legacy_content TEXT');
+      const res = db.exec('SELECT id, name, content FROM templates');
+      for (const [id, name, content] of res.length ? res[0].values : []) {
+        let parsed;
+        try { parsed = JSON.parse(content); } catch {
+          log(`template ${id} "${name}": content is not JSON, left as is`);
+          continue;
+        }
+        if (!isLegacyTemplate(parsed)) continue;
+        const { template, notes } = convertLegacyTemplate(parsed);
+        template.name = String(name || template.name);
+        db.run('UPDATE templates SET content = ?, legacy_content = ? WHERE id = ?', [JSON.stringify(template, null, 2), content, id]);
+        log(`converted template ${id} "${name}" to schema v1${notes.length ? ` (${notes.join('; ')})` : ''}`);
       }
     },
   },

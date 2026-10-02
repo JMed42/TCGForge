@@ -133,14 +133,19 @@ function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
       if (fontsReady) fitted(layer.id, r)
       return
     }
+    // Measure by setting sizes directly on the element, then put back exactly what React rendered:
+    // React only re-applies a style when its value changes, so clearing it would leave the text
+    // at the inherited size.
+    const prevSize = inner.style.fontSize
+    const prevLh = inner.style.lineHeight
     const overflows = (pt: number, lh: number) => {
       inner.style.fontSize = `${ptToPx(pt, pxPerMm)}px`
       inner.style.lineHeight = String(lh)
       return inner.offsetHeight > c.clientHeight + 0.5 || inner.scrollWidth > c.clientWidth + 0.5
     }
     const r = fitText(startPt, baseLh, minPt, strategy, overflows)
-    inner.style.fontSize = ''
-    inner.style.lineHeight = ''
+    inner.style.fontSize = prevSize
+    inner.style.lineHeight = prevLh
     setResult(r)
     fitted(layer.id, r)
     // eslint-disable-next-line react-hooks/exhaustive-deps

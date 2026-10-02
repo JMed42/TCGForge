@@ -5,7 +5,6 @@ const path = require('path');
 const { createCanvas } = require('canvas');
 const { tempDir } = require('./helpers');
 const art = require('../electron/cardDesigner/art');
-const { renderCard } = require('../electron/cardDesigner/render');
 
 function png(file, color, w = 300, h = 200) {
   const c = createCanvas(w, h);
@@ -43,19 +42,6 @@ test('thumbnails are small and report the original size', async () => {
   const t = await art.thumbnail(userData, 1, rel);
   assert.deepEqual([t.width, t.height], [1200, 900]);
   assert.ok(t.dataUrl.startsWith('data:image/png;base64,'));
-  assert.equal(await art.thumbnail(userData, 1, 'art/missing.png'), null);
+  assert.equal(await art.thumbnail(userData, 1, 'assets/art/missing.png'), null);
   assert.equal(await art.thumbnail(userData, 1, 'secrets.txt'), null, 'only image paths are read');
-});
-
-test('cards render art stored as a project-relative path', async () => {
-  const userData = tempDir('art-render');
-  const rel = await art.importCardArt(userData, 1, png(path.join(tempDir('s2'), 'green.png'), '#00ff00'));
-  const projectDir = path.join(userData, 'projects', '1');
-  const tpl = {
-    meta: { width: 300, height: 300, dpi: 300 }, cornerRadius: 0, background: { color: '#000' },
-    layers: [{ id: 'art', type: 'image', source: '{{image_path}}', x: 0, y: 0, width: 300, height: 300, fit: 'stretch' }],
-  };
-  const r = await renderCard({ image_path: rel }, tpl, { dpi: 300, templateDir: path.join(projectDir, 'templates'), projectDir });
-  assert.deepEqual(r.warnings, []);
-  assert.deepEqual([...r.canvas.getContext('2d').getImageData(150, 150, 1, 1).data], [0, 255, 0, 255]);
 });

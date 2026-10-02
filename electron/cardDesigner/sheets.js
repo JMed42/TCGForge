@@ -1,10 +1,6 @@
-// Print-and-play sheets (spec §P0.4 stretch goal): many cards per Letter/A4 PDF page, placed
-// at exact physical size, with optional bleed and crop marks.
-//
-// Units: millimetres for layout, PDF points (1/72 in) when drawing.
-
-const PDFDocument = require('pdfkit');
-const fs = require('fs');
+// Print-and-play sheets: many cards per Letter/A4 page at physical size, with optional bleed and
+// crop marks. This module does the layout in millimetres; the pages are drawn by the renderer's
+// #render route and printed to PDF (electron/renderWindow.js), so text stays vector.
 
 const PAPER_MM = {
   letter: { width: 215.9, height: 279.4, label: 'Letter' },
@@ -16,8 +12,7 @@ const CROP_MARK_GAP_MM = 1;
 const CROP_MARK_LENGTH_MM = 4;
 
 function cardSizeMm(template) {
-  const { width, height, dpi } = template.meta;
-  return { width: (width / dpi) * 25.4, height: (height / dpi) * 25.4 };
+  return { width: template.size.widthMm, height: template.size.heightMm };
 }
 
 function fit(pageW, pageH, cellW, cellH, margin) {
@@ -29,8 +24,6 @@ function fit(pageW, pageH, cellW, cellH, margin) {
 /**
  * Grid for one sheet. Picks the orientation that fits more cards (portrait on a tie) and
  * centres the grid on the page.
- * @returns {{ paper, orientation, pageWidthMm, pageHeightMm, cols, rows, perPage,
- *             cardWidthMm, cardHeightMm, bleedMm, cellWidthMm, cellHeightMm, originXMm, originYMm }}
  */
 function layoutSheet({ paper = 'letter', cardWidthMm, cardHeightMm, bleedMm = 0, marginMm = DEFAULT_MARGIN_MM }) {
   const size = PAPER_MM[paper];
@@ -40,7 +33,6 @@ function layoutSheet({ paper = 'letter', cardWidthMm, cardHeightMm, bleedMm = 0,
   const portrait = { orientation: 'portrait', w: size.width, h: size.height, ...fit(size.width, size.height, cellW, cellH, marginMm) };
   const landscape = { orientation: 'landscape', w: size.height, h: size.width, ...fit(size.height, size.width, cellW, cellH, marginMm) };
   const best = landscape.cols * landscape.rows > portrait.cols * portrait.rows ? landscape : portrait;
-  const perPage = best.cols * best.rows;
   return {
     paper,
     orientation: best.orientation,
@@ -48,7 +40,7 @@ function layoutSheet({ paper = 'letter', cardWidthMm, cardHeightMm, bleedMm = 0,
     pageHeightMm: best.h,
     cols: best.cols,
     rows: best.rows,
-    perPage,
+    perPage: best.cols * best.rows,
     cardWidthMm,
     cardHeightMm,
     bleedMm,
@@ -71,8 +63,8 @@ function slotTrimMm(layout, index) {
   };
 }
 
-// Crop marks in the page margin, extending every trim line outward from the grid edge.
-function drawCropMarks(doc, layout, usedSlots) {
+// Crop marks as line segments [x1, y1, x2, y2] in mm: every trim line extended into the margin.
+function cropMarks(layout, usedSlots) {
   const cols = Math.min(layout.cols, usedSlots);
   const rows = Math.ceil(usedSlots / layout.cols);
   const gridLeft = layout.originXMm;
@@ -83,75 +75,62 @@ function drawCropMarks(doc, layout, usedSlots) {
   const ys = new Set();
   for (let c = 0; c < cols; c++) {
     const t = slotTrimMm(layout, c);
-    xs.add(t.x.toFixed(4)); xs.add((t.x + t.width).toFixed(4));
+    xs.add(+t.x.toFixed(4)); xs.add(+(t.x + t.width).toFixed(4));
   }
   for (let r = 0; r < rows; r++) {
     const t = slotTrimMm(layout, r * layout.cols);
-    ys.add(t.y.toFixed(4)); ys.add((t.y + t.height).toFixed(4));
+    ys.add(+t.y.toFixed(4)); ys.add(+(t.y + t.height).toFixed(4));
   }
-  const pt = (mm) => mm * MM_TO_PT;
-  const line = (x1, y1, x2, y2) => doc.moveTo(pt(x1), pt(y1)).lineTo(pt(x2), pt(y2)).stroke();
-  doc.save().lineWidth(0.25).strokeColor('#000000');
   const len = (space) => Math.max(0, Math.min(CROP_MARK_LENGTH_MM, space - CROP_MARK_GAP_MM));
   const topLen = len(gridTop);
   const bottomLen = len(layout.pageHeightMm - gridBottom);
   const leftLen = len(gridLeft);
   const rightLen = len(layout.pageWidthMm - gridRight);
-  for (const s of xs) {
-    const x = Number(s);
-    if (topLen > 0) line(x, gridTop - CROP_MARK_GAP_MM - topLen, x, gridTop - CROP_MARK_GAP_MM);
-    if (bottomLen > 0) line(x, gridBottom + CROP_MARK_GAP_MM, x, gridBottom + CROP_MARK_GAP_MM + bottomLen);
+  const marks = [];
+  for (const x of xs) {
+    if (topLen > 0) marks.push([x, gridTop - CROP_MARK_GAP_MM - topLen, x, gridTop - CROP_MARK_GAP_MM]);
+    if (bottomLen > 0) marks.push([x, gridBottom + CROP_MARK_GAP_MM, x, gridBottom + CROP_MARK_GAP_MM + bottomLen]);
   }
-  for (const s of ys) {
-    const y = Number(s);
-    if (leftLen > 0) line(gridLeft - CROP_MARK_GAP_MM - leftLen, y, gridLeft - CROP_MARK_GAP_MM, y);
-    if (rightLen > 0) line(gridRight + CROP_MARK_GAP_MM, y, gridRight + CROP_MARK_GAP_MM + rightLen, y);
+  for (const y of ys) {
+    if (leftLen > 0) marks.push([gridLeft - CROP_MARK_GAP_MM - leftLen, y, gridLeft - CROP_MARK_GAP_MM, y]);
+    if (rightLen > 0) marks.push([gridRight + CROP_MARK_GAP_MM, y, gridRight + CROP_MARK_GAP_MM + rightLen, y]);
   }
-  doc.restore();
+  return marks;
 }
 
 /**
- * Write a multi-page sheet PDF.
- * @param {object} layout       from layoutSheet
- * @param {number} count        number of card images to place
- * @param {(i:number) => Promise<Buffer|null>} imageAt  JPEG/PNG for item i (bleed included), or null to leave the slot empty
- * @param {object} opts         { outPath, cropMarks, title, onProgress(i, count) }
+ * Pages for the render host: each page lists cards (top-left of their bleed box, in mm) and its
+ * crop marks. cardAt(i) returns the card for slot i (copies are consecutive).
  */
-async function writeSheetsPdf(layout, count, imageAt, { outPath, cropMarks = true, title = 'Print sheets', onProgress } = {}) {
+function buildSheetPages(layout, count, cardAt, { cropMarks: withMarks = true } = {}) {
   if (layout.perPage < 1) throw new Error('the card does not fit on this paper size');
-  const pageSize = [layout.pageWidthMm * MM_TO_PT, layout.pageHeightMm * MM_TO_PT];
-  const doc = new PDFDocument({ size: pageSize, margin: 0, autoFirstPage: false, info: { Title: title, Creator: 'TCGForge', Producer: 'TCGForge (pdfkit)' } });
-  const stream = fs.createWriteStream(outPath);
-  const done = new Promise((resolve, reject) => { stream.on('finish', resolve); stream.on('error', reject); doc.on('error', reject); });
-  doc.pipe(stream);
-
-  // Copies of one card come back as the same Buffer: embed it once and reuse the PDF image.
-  let lastBuffer = null;
-  let lastImage = null;
-  const pages = Math.ceil(count / layout.perPage);
-  for (let p = 0; p < pages; p++) {
-    doc.addPage({ size: pageSize, margin: 0 });
-    const onPage = Math.min(layout.perPage, count - p * layout.perPage);
+  const pages = [];
+  for (let start = 0; start < count; start += layout.perPage) {
+    const onPage = Math.min(layout.perPage, count - start);
+    const items = [];
     for (let s = 0; s < onPage; s++) {
-      const i = p * layout.perPage + s;
-      if (onProgress) onProgress(i, count);
-      const img = await imageAt(i);
-      if (!img) continue;
-      if (img !== lastBuffer) {
-        lastBuffer = img;
-        lastImage = doc.openImage(img);
-      }
       const t = slotTrimMm(layout, s);
-      doc.image(lastImage, (t.x - layout.bleedMm) * MM_TO_PT, (t.y - layout.bleedMm) * MM_TO_PT, {
-        width: layout.cellWidthMm * MM_TO_PT,
-        height: layout.cellHeightMm * MM_TO_PT,
-      });
+      items.push({ card: cardAt(start + s), xMm: t.x - layout.bleedMm, yMm: t.y - layout.bleedMm });
     }
-    if (cropMarks) drawCropMarks(doc, layout, onPage);
+    pages.push({ items, marks: withMarks ? cropMarks(layout, onPage) : [] });
   }
-  doc.end();
-  await done;
-  return { pages };
+  return pages;
 }
 
-module.exports = { PAPER_MM, DEFAULT_MARGIN_MM, MM_TO_PT, cardSizeMm, layoutSheet, slotTrimMm, writeSheetsPdf };
+// A single card on its own page: trim size plus bleed, plus room for crop marks if wanted.
+function singleCardPage(template, { bleedMm = template.size.bleedMm, cropMarks: withMarks = true } = {}) {
+  const margin = withMarks ? CROP_MARK_GAP_MM + CROP_MARK_LENGTH_MM : 0;
+  const w = template.size.widthMm + 2 * bleedMm + 2 * margin;
+  const h = template.size.heightMm + 2 * bleedMm + 2 * margin;
+  const layout = {
+    pageWidthMm: w, pageHeightMm: h, cols: 1, rows: 1, perPage: 1,
+    cardWidthMm: template.size.widthMm, cardHeightMm: template.size.heightMm, bleedMm,
+    cellWidthMm: template.size.widthMm + 2 * bleedMm, cellHeightMm: template.size.heightMm + 2 * bleedMm,
+    originXMm: margin, originYMm: margin,
+  };
+  return layout;
+}
+
+module.exports = {
+  PAPER_MM, DEFAULT_MARGIN_MM, MM_TO_PT, cardSizeMm, layoutSheet, slotTrimMm, cropMarks, buildSheetPages, singleCardPage,
+};

@@ -22,9 +22,7 @@
     "@tiptap/extension-underline": "^2.11.0",
     "@tiptap/react": "^2.11.0",
     "@tiptap/starter-kit": "^2.11.0",
-    "canvas": "^3.2.3",
     "lucide-react": "^0.468.0",
-    "pdfkit": "^0.15.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sql.js": "^1.12.0",
@@ -36,6 +34,7 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "canvas": "^3.2.3",
     "concurrently": "^9.1.0",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
@@ -54,9 +53,6 @@
     ],
     "directories": {
       "output": "release"
-    },
-    "asarUnpack": [
-      "node_modules/canvas/**"
-    ]
+    }
   }
 }

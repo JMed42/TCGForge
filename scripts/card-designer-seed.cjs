@@ -1,5 +1,6 @@
-// Dev helper: seed a throwaway userData folder with a project, sample cards and the Phase 0
-// fixture templates, so the Designer can be exercised without touching real data.
+// Dev helper: seed a throwaway userData folder with a project, sample cards, generated art and
+// the fixture templates (converted to schema v1), so the Designer can be exercised without
+// touching real data.
 //   node scripts/card-designer-seed.cjs <userDataDir>
 //   electron . --user-data-dir=<userDataDir>
 
@@ -8,6 +9,7 @@ const path = require('path');
 const { initDatabase, registerIpcHandlers, insertTemplate } = require('../electron/database');
 const { DB_FILE } = require('../electron/legacyData');
 const templates = require('../electron/cardDesigner/templates');
+const { convertLegacyTemplate } = require('../electron/cardDesigner/convertLegacyTemplate');
 const { generateAssets } = require('../electron/cardDesigner/fixtures/generateAssets');
 const { sampleCards } = require('../electron/cardDesigner/fixtures/sampleCards');
 
@@ -24,18 +26,25 @@ async function main() {
   registerIpcHandlers({ handle: (name, fn) => { handlers[name] = fn; } });
   const call = (name, ...args) => handlers[name](null, ...args);
 
-  const project = call('createProject', { name: 'Designer Spike', description: 'Card Designer Phase 0 test data' });
-  const dir = templates.templatesDir(userData, project.id);
-  const art = generateAssets(dir);
+  const project = call('createProject', { name: 'Designer Spike', description: 'Card Designer test data' });
+
+  // Assets live in {project}/assets (spec layout); cards store art as project-relative paths.
+  const dir = templates.projectDir(userData, project.id);
+  const abs = generateAssets(dir, path.join(dir, 'assets', 'art'));
+  const rel = (file) => path.relative(dir, file).split(path.sep).join('/');
+  const art = { ember: rel(abs.ember), tide: rel(abs.tide) };
   const sysFont = 'C:\\Windows\\Fonts\\segoeprb.ttf';
   if (fs.existsSync(sysFont)) fs.copyFileSync(sysFont, path.join(dir, 'assets', 'fonts', 'Scribe-Bold.ttf'));
 
   for (const card of sampleCards(art)) call('createCard', project.id, card);
+
+  // The fixtures are Phase 0 pixel templates: convert them the way migration v3 does.
   for (const file of ['standard.json', 'fit-matrix.json']) {
-    const tpl = JSON.parse(fs.readFileSync(path.join(__dirname, '../electron/cardDesigner/fixtures', file), 'utf8'));
-    insertTemplate(project.id, tpl.meta.name, JSON.stringify(tpl, null, 2));
+    const legacy = JSON.parse(fs.readFileSync(path.join(__dirname, '../electron/cardDesigner/fixtures', file), 'utf8'));
+    const { template } = convertLegacyTemplate(legacy);
+    insertTemplate(project.id, template.name, JSON.stringify(template, null, 2));
   }
-  console.log(JSON.stringify({ userData, projectId: project.id, templatesDir: dir }));
+  console.log(JSON.stringify({ userData, projectId: project.id, projectDir: dir }));
 }
 
 main().catch((err) => { console.error(err.message); process.exit(1); });

@@ -5,6 +5,7 @@ const { initDatabase, registerIpcHandlers } = database;
 const { registerCardDesignerIpc } = require('./cardDesigner/ipc');
 const { migrateLegacyData } = require('./legacyData');
 const assets = require('./assets');
+const { RenderService } = require('./renderWindow');
 
 // tcg-asset:// must be declared privileged before the app is ready.
 assets.registerAssetScheme(protocol);
@@ -19,6 +20,7 @@ if (!app.commandLine.hasSwitch('user-data-dir')) {
 }
 
 let mainWindow;
+let render = null;
 let closeGuard = { ready: false, allowClose: false };
 
 ipcMain.handle('closeGuardReady', (event) => {
@@ -72,6 +74,8 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    // The hidden export window must not keep the app alive.
+    if (render) render.close();
     mainWindow = null;
   });
 }
@@ -91,6 +95,13 @@ app.whenReady().then(async () => {
       }
     });
     registerIpcHandlers(ipcMain);
+    // Exports render in a hidden window on the app's #render route (same CardRender as the editor).
+    render = new RenderService({
+      preload: path.join(__dirname, 'preload.js'),
+      load: (win) => (isDev
+        ? win.loadURL('http://localhost:5173/#render')
+        : win.loadFile(path.join(__dirname, '../dist/index.html'), { hash: 'render' })),
+    });
     registerCardDesignerIpc(ipcMain, {
       userDataPath: app.getPath('userData'),
       getCard: database.getCard,
@@ -103,6 +114,7 @@ app.whenReady().then(async () => {
       dialog,
       shell,
       getWindow: () => mainWindow,
+      render,
     });
     createWindow();
   } catch (err) {

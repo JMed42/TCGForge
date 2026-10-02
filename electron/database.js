@@ -190,7 +190,8 @@ function insertTemplate(projectId, name, content) {
 }
 
 function updateTemplate(id, name, content) {
-  run("UPDATE templates SET name = ?, content = ?, updated_at = datetime('now') WHERE id = ?", [name, content, id]);
+  // version bumps on every save (spec: templates.version); Phase 3's fit_cache keys on it.
+  run("UPDATE templates SET name = ?, content = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?", [name, content, id]);
   return getTemplate(id);
 }
 

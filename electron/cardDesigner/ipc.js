@@ -1,14 +1,14 @@
-// IPC channels for the Card Designer (spec §P0.5).
-// Templates are rows in the `templates` table, addressed by numeric id. Their assets live on
-// disk under the project's folder (see templates.js).
+// IPC channels for the Card Designer. Templates (schema v1) are rows in the `templates` table,
+// addressed by numeric id. Rendering for export happens in a hidden window running the same
+// CardRender component as the editor (electron/renderWindow.js).
 
 const fs = require('fs');
 const path = require('path');
 const templates = require('./templates');
 const art = require('./art');
 const sheets = require('./sheets');
-const { renderCard, yieldToEventLoop, warmUp } = require('./render');
-const { toPng, toJpeg, writePdf } = require('./exporters');
+const { withDpi } = require('./pngDpi');
+const { listProjectFonts } = require('./projectFonts');
 
 const FORMATS = {
   png: { ext: 'png', filter: { name: 'PNG image', extensions: ['png'] } },
@@ -17,6 +17,7 @@ const FORMATS = {
 };
 const MIN_DPI = 24;
 const MAX_DPI = 1200;
+const MAX_SHEET_SLOTS = 2000;
 
 function formatOf(value) {
   const key = value === 'jpg' ? 'jpeg' : String(value || 'png');
@@ -27,13 +28,6 @@ function formatOf(value) {
 function dpiOf(value, fallback) {
   const n = Number(value) || fallback;
   return Math.min(MAX_DPI, Math.max(MIN_DPI, n));
-}
-
-async function writeCardFile(canvas, template, format, dpi, outPath) {
-  if (format === 'pdf') return writePdf(canvas, template, outPath, dpi);
-  const buf = format === 'jpeg' ? toJpeg(canvas) : toPng(canvas, dpi);
-  fs.writeFileSync(outPath, buf);
-  return outPath;
 }
 
 // Default single-card filename per spec: {card-name}-preview.png / -print.png / -print.pdf
@@ -49,7 +43,7 @@ function batchFileName(card, format) {
   return `${parts.filter(Boolean).join('_')}.${FORMATS[format].ext}`;
 }
 
-// Row as sent to the renderer process: content stays JSON text, plus a parse error if any.
+// Row as sent to the renderer process: content stays JSON text, plus a structural error if any.
 function templateRowOut(row) {
   let error = null;
   try { templates.validateTemplateObject(JSON.parse(row.content)); } catch (err) { error = err.message; }
@@ -62,12 +56,11 @@ function templateRowOut(row) {
  *   userDataPath, getCard(id), queryCards(projectId, filters),
  *   listTemplates(projectId), getTemplate(id), insertTemplate(projectId, name, content),
  *   updateTemplate(id, name, content), deleteTemplate(id),
- *   dialog, shell, getWindow()
+ *   render: RenderService, dialog, shell, getWindow()
  * }
  */
 function registerCardDesignerIpc(ipcMain, deps) {
-  const { userDataPath, getCard, queryCards, dialog, shell, getWindow } = deps;
-  setImmediate(warmUp);
+  const { userDataPath, getCard, queryCards, dialog, shell, getWindow, render } = deps;
 
   const loadCard = (cardId) => {
     const card = getCard(cardId);
@@ -75,40 +68,49 @@ function registerCardDesignerIpc(ipcMain, deps) {
     return card;
   };
 
-  // Template JSON from the DB (or an unsaved editor draft) plus the folders its relative
-  // asset paths resolve against.
+  // Template JSON from the DB, or an unsaved editor draft (validated structurally here; the
+  // renderer already ran the full zod schema).
   const loadTemplate = (templateId, draft) => {
     const row = deps.getTemplate(templateId);
     if (!row) throw new Error(`template ${templateId} not found`);
     const template = templates.validateTemplateObject(draft !== undefined && draft !== null ? draft : JSON.parse(row.content));
-    return {
-      row,
-      template,
-      assetDirs: {
-        templateDir: templates.templatesDir(userDataPath, row.project_id),
-        projectDir: templates.projectDir(userDataPath, row.project_id),
-      },
-    };
+    return { row, template };
   };
 
-  const render = async (card, templateId, dpi, draft) => {
-    const { row, template, assetDirs } = loadTemplate(templateId, draft);
+  const loadForCard = (cardId, templateId, draft) => {
+    const card = loadCard(cardId);
+    const { row, template } = loadTemplate(templateId, draft);
     if (row.project_id !== card.project_id) throw new Error('card and template belong to different projects');
-    const result = await renderCard(card, template, { dpi, ...assetDirs });
-    return { ...result, template };
+    return { card, template, projectId: row.project_id };
   };
 
+  const pngFor = async ({ template, card, projectId }, dpi, { showBleed = false, background = null } = {}) => {
+    const { image, report } = await render.renderCard({ template, card, projectId, pxPerMm: dpi / 25.4, showBleed, background });
+    return { png: withDpi(image.toPNG(), dpi), image, report };
+  };
+
+  // One PDF page holding a single card with bleed and crop marks.
+  const pdfFor = async ({ template, card, projectId }, { cropMarks = true } = {}) => {
+    const layout = sheets.singleCardPage(template, { cropMarks });
+    const pages = sheets.buildSheetPages(layout, 1, () => card, { cropMarks });
+    return render.printPages({
+      projectId, template, showBleed: true,
+      pageWidthMm: layout.pageWidthMm, pageHeightMm: layout.pageHeightMm, pages,
+    });
+  };
+
+  // ── Templates ──
   ipcMain.handle('getTemplates', (_, projectId) => deps.listTemplates(projectId).map(templateRowOut));
 
   ipcMain.handle('createTemplate', (_, projectId, name) => {
     const tpl = templates.blankTemplate(String(name || '').trim() || 'New Template');
-    return templateRowOut(deps.insertTemplate(projectId, tpl.meta.name, JSON.stringify(tpl, null, 2)));
+    return templateRowOut(deps.insertTemplate(projectId, tpl.name, JSON.stringify(tpl, null, 2)));
   });
 
   // template: object or JSON text. id omitted → insert; otherwise update (must be in projectId).
   ipcMain.handle('saveTemplate', (_, projectId, template, id) => {
     const obj = templates.validateTemplateObject(typeof template === 'string' ? JSON.parse(template) : template);
-    const name = String(obj.meta.name || '').trim() || 'Untitled';
+    const name = String(obj.name || '').trim() || 'Untitled';
     const content = JSON.stringify(obj, null, 2);
     if (id === undefined || id === null) return templateRowOut(deps.insertTemplate(projectId, name, content));
     const existing = deps.getTemplate(id);
@@ -118,33 +120,45 @@ function registerCardDesignerIpc(ipcMain, deps) {
 
   ipcMain.handle('deleteTemplate', (_, id) => deps.deleteTemplate(id));
 
-  // options.draft: unsaved template object from the editor, rendered instead of the stored JSON.
-  ipcMain.handle('renderCard', async (_, cardId, templateId, options = {}) => {
-    const card = loadCard(cardId);
-    const { canvas, width, height, warnings } = await render(card, templateId, dpiOf(options.dpi, 96), options.draft);
-    return { dataUrl: `data:image/png;base64,${toPng(canvas).toString('base64')}`, width, height, warnings };
-  });
+  ipcMain.handle('listProjectFonts', (_, projectId) => listProjectFonts(templates.projectDir(userDataPath, projectId)));
 
+  // ── Single card ──
+  // options: { format: png|jpeg|pdf, dpi, draft, outputPath, bleed (png: include bleed area) }
   ipcMain.handle('exportCard', async (_, cardId, templateId, options = {}) => {
-    const card = loadCard(cardId);
+    const job = loadForCard(cardId, templateId, options.draft);
     const format = formatOf(options.format);
     const dpi = dpiOf(options.dpi, format === 'pdf' ? 300 : 96);
     let outPath = options.outputPath;
     if (!outPath) {
       const res = await dialog.showSaveDialog(getWindow(), {
-        defaultPath: singleFileName(card, format, dpi),
+        defaultPath: singleFileName(job.card, format, dpi),
         filters: [FORMATS[format].filter],
       });
       if (res.canceled || !res.filePath) return { canceled: true };
       outPath = res.filePath;
     }
-    const { canvas, template, warnings } = await render(card, templateId, dpi, options.draft);
-    await writeCardFile(canvas, template, format, dpi, outPath);
-    return { path: outPath, warnings };
+    let report;
+    if (format === 'pdf') {
+      const out = await pdfFor(job, { cropMarks: options.cropMarks !== false });
+      fs.writeFileSync(outPath, out.pdf);
+      report = out.report;
+    } else if (format === 'jpeg') {
+      // JPEG has no alpha: rounded corners are composited onto white.
+      const out = await pngFor(job, dpi, { showBleed: Boolean(options.bleed), background: '#ffffff' });
+      fs.writeFileSync(outPath, out.image.toJPEG(92));
+      report = out.report;
+    } else {
+      const out = await pngFor(job, dpi, { showBleed: Boolean(options.bleed) });
+      fs.writeFileSync(outPath, out.png);
+      report = out.report;
+    }
+    return { path: outPath, warnings: report ? report.warnings : [] };
   });
 
+  // ── All cards (PNG/JPEG files) ──
   ipcMain.handle('exportAllCards', async (event, projectId, templateId, options = {}) => {
     const format = formatOf(options.format);
+    if (format === 'pdf') throw new Error('use print sheets for a multi-card PDF');
     const dpi = dpiOf(options.dpi, 300);
     let outputDir = options.outputDir;
     if (!outputDir) {
@@ -157,7 +171,7 @@ function registerCardDesignerIpc(ipcMain, deps) {
     }
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const { row, template, assetDirs } = loadTemplate(templateId, options.draft);
+    const { row, template } = loadTemplate(templateId, options.draft);
     if (row.project_id !== projectId) throw new Error(`template ${templateId} not found in project ${projectId}`);
     const cards = queryCards(projectId, options.filter || {});
     const errors = [];
@@ -169,27 +183,19 @@ function registerCardDesignerIpc(ipcMain, deps) {
       const card = cards[i];
       if (!sender.isDestroyed()) sender.send('exportProgress', { current: i + 1, total: cards.length });
       try {
-        const { canvas, warnings } = await renderCard(card, template, { dpi, ...assetDirs });
-        await writeCardFile(canvas, template, format, dpi, path.join(outputDir, batchFileName(card, format)));
-        for (const w of warnings) errors.push(`card ${card.id} "${card.name}": warning: ${w}`);
+        const out = await pngFor({ template, card, projectId }, dpi, { showBleed: Boolean(options.bleed), background: format === 'jpeg' ? '#ffffff' : null });
+        fs.writeFileSync(path.join(outputDir, batchFileName(card, format)), format === 'jpeg' ? out.image.toJPEG(92) : out.png);
+        for (const w of out.report.warnings) errors.push(`card ${card.id} "${card.name}": warning: ${w}`);
         exported++;
       } catch (err) {
         errors.push(`card ${card.id} "${card.name}": ${err.message}`);
       }
-      await yieldToEventLoop();
     }
 
     if (errors.length) {
       fs.writeFileSync(path.join(outputDir, 'render-errors.log'), errors.join('\n') + '\n', 'utf8');
     }
-    return {
-      exported,
-      skipped: cards.length - exported,
-      total: cards.length,
-      errors,
-      outputDir,
-      elapsedMs: Date.now() - started,
-    };
+    return { exported, skipped: cards.length - exported, total: cards.length, errors, outputDir, elapsedMs: Date.now() - started };
   });
 
   // ── Print sheets ──
@@ -206,54 +212,42 @@ function registerCardDesignerIpc(ipcMain, deps) {
 
   // options: { paper, bleedMm, cropMarks, copies, filter, draft, outputPath }
   ipcMain.handle('exportPrintSheets', async (event, projectId, templateId, options = {}) => {
-    const { row, template, assetDirs } = loadTemplate(templateId, options.draft);
+    const { row, template } = loadTemplate(templateId, options.draft);
     if (row.project_id !== projectId) throw new Error(`template ${templateId} not found in project ${projectId}`);
     const layout = sheetLayoutFor(template, options);
     if (layout.perPage < 1) throw new Error('this card size does not fit on the chosen paper');
     const copies = Math.max(1, Math.min(99, Math.floor(Number(options.copies) || 1)));
     const cards = queryCards(projectId, options.filter || {});
     if (cards.length === 0) throw new Error('no cards match the current filter');
+    const total = cards.length * copies;
+    if (total > MAX_SHEET_SLOTS) throw new Error(`at most ${MAX_SHEET_SLOTS} cards per print run`);
 
     let outPath = options.outputPath;
     if (!outPath) {
       const res = await dialog.showSaveDialog(getWindow(), {
-        defaultPath: `${templates.slugify(template.meta.name) || 'cards'}-${layout.paper}-sheets.pdf`,
+        defaultPath: `${templates.slugify(template.name) || 'cards'}-${layout.paper}-sheets.pdf`,
         filters: [FORMATS.pdf.filter],
       });
       if (res.canceled || !res.filePath) return { canceled: true };
       outPath = res.filePath;
     }
 
-    const sender = event.sender;
-    const errors = [];
     const started = Date.now();
-    let lastIndex = -1;
-    let lastImage = null;
-    const imageAt = async (i) => {
-      const index = Math.floor(i / copies);
-      if (index === lastIndex) return lastImage;
-      lastIndex = index;
-      const card = cards[index];
-      try {
-        const { canvas, warnings } = await renderCard(card, template, { dpi: 300, bleedMm: layout.bleedMm, ...assetDirs });
-        for (const w of warnings) errors.push(`card ${card.id} "${card.name}": warning: ${w}`);
-        lastImage = toJpeg(canvas, 0.92); // opaque print raster, far smaller than PNG in the PDF
-      } catch (err) {
-        errors.push(`card ${card.id} "${card.name}": ${err.message}`);
-        lastImage = null;
-      }
-      await yieldToEventLoop();
-      return lastImage;
-    };
-
-    const total = cards.length * copies;
-    const { pages } = await sheets.writeSheetsPdf(layout, total, imageAt, {
-      outPath,
-      cropMarks: options.cropMarks !== false,
-      title: `${template.meta.name || 'Cards'} — print sheets`,
-      onProgress: (i, count) => { if (!sender.isDestroyed()) sender.send('exportProgress', { current: i + 1, total: count }); },
+    const sender = event.sender;
+    if (!sender.isDestroyed()) sender.send('exportProgress', { current: 0, total });
+    const pages = sheets.buildSheetPages(layout, total, (i) => cards[Math.floor(i / copies)], { cropMarks: options.cropMarks !== false });
+    // The sheet's bleed choice overrides the template's for this print (0 = rounded trim cards).
+    const printTemplate = { ...template, size: { ...template.size, bleedMm: layout.bleedMm } };
+    const { pdf, report } = await render.printPages({
+      projectId, template: printTemplate, showBleed: layout.bleedMm > 0,
+      pageWidthMm: layout.pageWidthMm, pageHeightMm: layout.pageHeightMm, pages,
     });
-    return { path: outPath, pages, cards: cards.length, copies, perPage: layout.perPage, layout, errors, elapsedMs: Date.now() - started };
+    fs.writeFileSync(outPath, pdf);
+    if (!sender.isDestroyed()) sender.send('exportProgress', { current: total, total });
+    return {
+      path: outPath, pages: pages.length, cards: cards.length, copies, perPage: layout.perPage, layout,
+      errors: report ? report.warnings : [], elapsedMs: Date.now() - started,
+    };
   });
 
   // ── Card art ──

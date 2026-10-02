@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   createTemplate: (projectId, name) => ipcRenderer.invoke('createTemplate', projectId, name),
   saveTemplate: (projectId, template, id) => ipcRenderer.invoke('saveTemplate', projectId, template, id),
   deleteTemplate: (id) => ipcRenderer.invoke('deleteTemplate', id),
-  renderCard: (cardId, templateId, options) => ipcRenderer.invoke('renderCard', cardId, templateId, options),
+  listProjectFonts: (projectId) => ipcRenderer.invoke('listProjectFonts', projectId),
   exportCard: (cardId, templateId, options) => ipcRenderer.invoke('exportCard', cardId, templateId, options),
   exportAllCards: (projectId, templateId, options) => ipcRenderer.invoke('exportAllCards', projectId, templateId, options),
   showInFolder: (target) => ipcRenderer.invoke('showInFolder', target),
@@ -59,6 +59,14 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('assetChanged', listener);
     return () => ipcRenderer.removeListener('assetChanged', listener);
   },
+  // Export render host (#render route in the hidden window; see electron/renderWindow.js).
+  onRenderJob: (callback) => {
+    const listener = (_, job) => callback(job);
+    ipcRenderer.on('render:job', listener);
+    return () => ipcRenderer.removeListener('render:job', listener);
+  },
+  renderHostReady: () => ipcRenderer.invoke('render:hostReady'),
+  renderDone: (payload) => ipcRenderer.invoke('render:done', payload),
   onExportProgress: (callback) => {
     const listener = (_, progress) => callback(progress);
     ipcRenderer.on('exportProgress', listener);

@@ -1,84 +1,50 @@
 // Card Designer state, composed into the main store (src/store.js).
 //
-// The editor works on `draft`, a template object. Edits are pure functions over the draft
-// (components/CardDesigner/editor/templateOps.js) and go through `edit` (one undo step) or
+// The editor works on `draft`, a template in schema v1 (src/designer/schema). Edits are pure
+// functions over the draft and go through `edit` (one undo step, optionally merged by key) or
 // `beginGesture` + `editLive` (one undo step for a whole drag). Nothing is written to the
-// database until `saveDraft`.
+// database until `saveDraft`, which validates with the zod schema first.
 //
-// Previews always render the draft through the main-process renderer (the same code as
-// export), throttled to one render in flight plus the latest queued request.
+// The canvas renders the draft directly with CardRender (same component as the exports), so
+// there is no preview round-trip here.
 
 import { createHistory, pushHistory, undoHistory, redoHistory } from './components/CardDesigner/editor/history'
-
-const RENDER_INTERVAL_MS = 100
-
-let renderInFlight = false
-let renderQueued = false
-let renderTimer = null
-let lastRenderStart = 0
+import { validateTemplate } from './designer/schema/schema.ts'
+import { assetKey } from './designer/render/assetUrl.ts'
 
 export const designerInitialState = {
-  templates: [], // rows: { id, project_id, name, content, error, updated_at }
+  templates: [], // rows: { id, project_id, name, content, version, error, updated_at }
   activeTemplateId: null,
   previewCardId: null,
-  preview: null, // { dataUrl, width, height, dpi, warnings, error? }
-  previewZoom: 2,
-  renderState: 'idle', // 'idle' | 'rendering' | 'error'
   draft: null,
   draftError: null, // stored JSON could not be opened
   savedJson: null, // JSON.stringify of the last saved template, for `dirty`
   dirty: false,
-  selectedLayerId: null,
+  selectedIds: [], // layer ids; multi-select on the canvas and in the layer list
   history: createHistory(),
   unsavedPrompt: null, // { proceed, resolve, error } while UnsavedChangesDialog is open
+  assetVersions: {}, // `${projectId}/${relPath}` -> counter, bumped when the file changes on disk
 }
 
-function parseTemplate(content) {
+function parseStored(content) {
   const obj = JSON.parse(content)
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj) || !obj.meta) throw new Error('template must be an object with meta')
-  return obj
+  const r = validateTemplate(obj)
+  if (!r.ok) throw new Error(r.errors.join('; '))
+  return r.template
 }
+
+const ipcMessage = (error) => String(error?.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 export function createDesignerSlice(set, get) {
   const setDraft = (draft, extra = {}) => {
     set({ draft, dirty: JSON.stringify(draft) !== get().savedJson, ...extra })
-    get().requestRender()
-  }
-
-  const runRender = async () => {
-    const { activeTemplateId, previewCardId, previewZoom, draft } = get()
-    if (!activeTemplateId || !previewCardId || !draft) {
-      set({ preview: null, renderState: 'idle' })
-      return
-    }
-    renderInFlight = true
-    lastRenderStart = Date.now()
-    set({ renderState: 'rendering' })
-    const dpi = 96 * previewZoom * (window.devicePixelRatio || 1)
-    try {
-      const result = await window.api.renderCard(previewCardId, activeTemplateId, { dpi, draft })
-      const now = get()
-      if (now.activeTemplateId === activeTemplateId && now.previewCardId === previewCardId && now.previewZoom === previewZoom) {
-        set({ preview: { ...result, dpi }, renderState: 'idle' })
-      }
-    } catch (error) {
-      // Keep the last good image on screen; show why the latest edit didn't render.
-      const message = String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-      set((s) => ({ preview: { ...(s.preview || {}), error: message }, renderState: 'error' }))
-    } finally {
-      renderInFlight = false
-      if (renderQueued) {
-        renderQueued = false
-        get().requestRender()
-      }
-    }
   }
 
   return {
     ...designerInitialState,
 
     resetDesigner: () => {
-      set({ ...designerInitialState, history: createHistory() })
+      set({ ...designerInitialState, history: createHistory(), assetVersions: get().assetVersions })
     },
 
     // ----- templates -----
@@ -103,18 +69,17 @@ export function createDesignerSlice(set, get) {
     // Open a template into the editor, discarding any draft (callers guard unsaved changes).
     openTemplate: (id) => {
       const row = get().templates.find((t) => t.id === id) || null
-      const base = { activeTemplateId: row ? row.id : null, selectedLayerId: null, history: createHistory(), dirty: false }
+      const base = { activeTemplateId: row ? row.id : null, selectedIds: [], history: createHistory(), dirty: false }
       if (!row) {
-        set({ ...base, draft: null, draftError: null, savedJson: null, preview: null })
+        set({ ...base, draft: null, draftError: null, savedJson: null })
         return
       }
       try {
-        const draft = parseTemplate(row.content)
+        const draft = parseStored(row.content)
         set({ ...base, draft, draftError: null, savedJson: JSON.stringify(draft) })
       } catch (error) {
-        set({ ...base, draft: null, draftError: error.message, savedJson: null, preview: null })
+        set({ ...base, draft: null, draftError: error.message, savedJson: null })
       }
-      get().requestRender()
     },
 
     setActiveTemplate: (id) => get().openTemplate(id),
@@ -129,7 +94,7 @@ export function createDesignerSlice(set, get) {
         return null
       } catch (error) {
         console.error('Failed to create template:', error)
-        return error.message
+        return ipcMessage(error)
       }
     },
 
@@ -143,43 +108,35 @@ export function createDesignerSlice(set, get) {
       }
     },
 
-    // ----- preview -----
+    // ----- sample card -----
     setPreviewCard: (id) => {
       set({ previewCardId: id })
-      get().requestRender()
     },
 
-    setPreviewZoom: (zoom) => {
-      set({ previewZoom: zoom })
-      get().requestRender()
+    // Step through the cards in the current list (Card Database filter). delta: +1 / -1.
+    stepPreviewCard: (delta) => {
+      const { cards, previewCardId } = get()
+      if (!cards.length) return
+      const i = cards.findIndex((c) => c.id === previewCardId)
+      const next = cards[((i < 0 ? 0 : i + delta) % cards.length + cards.length) % cards.length]
+      set({ previewCardId: next.id })
     },
 
-    requestRender: () => {
-      if (renderInFlight) {
-        renderQueued = true
-        return
-      }
-      const wait = lastRenderStart + RENDER_INTERVAL_MS - Date.now()
-      if (wait > 0) {
-        if (!renderTimer) {
-          renderTimer = setTimeout(() => {
-            renderTimer = null
-            get().requestRender()
-          }, wait)
-        }
-        return
-      }
-      runRender()
+    // ----- assets -----
+    // A file under the project folder changed on disk: bump its version so <img> and fonts reload.
+    bumpAsset: (projectId, relPath) => {
+      const key = assetKey(projectId, relPath)
+      set((s) => ({ assetVersions: { ...s.assetVersions, [key]: (s.assetVersions[key] || 0) + 1 } }))
     },
 
-    // Phase 0 name, still used by the view when cards change.
-    renderPreview: () => get().requestRender(),
+    // ----- selection -----
+    setSelection: (ids) => set({ selectedIds: ids }),
+    selectLayer: (id) => set({ selectedIds: id ? [id] : [] }),
+    toggleSelection: (id) => set((s) => ({
+      selectedIds: s.selectedIds.includes(id) ? s.selectedIds.filter((x) => x !== id) : [...s.selectedIds, id],
+    })),
 
     // ----- editing -----
-    selectLayer: (id) => {
-      set({ selectedLayerId: id })
-    },
-
     // One undoable edit. `key` merges rapid edits of the same field into one undo step.
     edit: (mutator, { key = null, select } = {}) => {
       const { draft, history } = get()
@@ -188,11 +145,11 @@ export function createDesignerSlice(set, get) {
       if (!next || next === draft) return
       setDraft(next, {
         history: pushHistory(history, draft, { key }),
-        ...(select !== undefined ? { selectedLayerId: select } : {}),
+        ...(select !== undefined ? { selectedIds: select } : {}),
       })
     },
 
-    // Drags: one history entry at pointer-down, then live updates without history.
+    // Drags: one history entry at the first movement, then live updates without history.
     beginGesture: () => {
       const { draft, history } = get()
       if (draft) set({ history: pushHistory(history, draft) })
@@ -221,27 +178,31 @@ export function createDesignerSlice(set, get) {
     applyJson: (text) => {
       let obj
       try {
-        obj = parseTemplate(text)
+        obj = JSON.parse(text)
       } catch (error) {
-        return `Invalid template JSON: ${error.message}`
+        return `Invalid JSON: ${error.message}`
       }
+      const r = validateTemplate(obj)
+      if (!r.ok) return r.errors.join('\n')
       const { draft, history } = get()
       if (!draft) {
         set({ draftError: null, history: createHistory() })
-        setDraft(obj)
+        setDraft(r.template)
         return null
       }
-      setDraft(obj, { history: pushHistory(history, draft) })
+      setDraft(r.template, { history: pushHistory(history, draft) })
       return null
     },
 
-    // Returns an error message or null.
+    // Validates with the zod schema, then saves. Returns an error message or null.
     saveDraft: async () => {
       const { activeProjectId, activeTemplateId, draft } = get()
       if (!activeProjectId || !activeTemplateId || !draft) return 'Nothing to save'
+      const r = validateTemplate(draft)
+      if (!r.ok) return r.errors.join('\n')
       try {
-        const row = await window.api.saveTemplate(activeProjectId, draft, activeTemplateId)
-        const saved = parseTemplate(row.content)
+        const row = await window.api.saveTemplate(activeProjectId, r.template, activeTemplateId)
+        const saved = JSON.parse(row.content)
         set((s) => ({
           templates: s.templates.map((t) => (t.id === row.id ? row : t)),
           savedJson: JSON.stringify(saved),
@@ -250,7 +211,7 @@ export function createDesignerSlice(set, get) {
         return null
       } catch (error) {
         console.error('Failed to save template:', error)
-        return String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+        return ipcMessage(error)
       }
     },
 

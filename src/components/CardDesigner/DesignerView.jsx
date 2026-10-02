@@ -5,10 +5,7 @@ import TopBar from '../Layout/TopBar'
 import TemplatePicker from './TemplatePicker'
 import PreviewCanvas from './PreviewCanvas'
 import TemplateJsonPanel from './TemplateJsonPanel'
-import LayerPanel from './LayerPanel'
-import LayerInspector from './LayerInspector'
 import ExportControls from './ExportControls'
-import { deleteLayer, duplicateLayer, findLayer, updateLayer } from './editor/templateOps'
 
 const isTypingTarget = (el) => el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
 
@@ -22,14 +19,14 @@ export default function DesignerView() {
     previewCardId,
     loadTemplates,
     setPreviewCard,
-    renderPreview,
+    activeProjectId,
+    bumpAsset,
     undo,
     redo,
     saveDraft,
     discardDraft,
   } = useStore()
   const [saveError, setSaveError] = useState(null)
-  const [sideTab, setSideTab] = useState('design')
 
   useEffect(() => {
     loadTemplates()
@@ -40,10 +37,8 @@ export default function DesignerView() {
     if (!cards.some((c) => c.id === previewCardId)) setPreviewCard(cards[0]?.id ?? null)
   }, [cards, previewCardId, setPreviewCard])
 
-  // `cards` is replaced after every card edit, so field changes re-render the preview too.
-  useEffect(() => {
-    renderPreview()
-  }, [cards, renderPreview])
+  // Files replaced on disk re-render immediately.
+  useEffect(() => window.api?.onAssetChanged?.((c) => bumpAsset(c.projectId, c.relPath)), [bumpAsset])
 
   const handleSave = async () => {
     setSaveError(await saveDraft())
@@ -64,29 +59,6 @@ export default function DesignerView() {
       if (mod && key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return }
       if (mod && ((key === 'z' && e.shiftKey) || key === 'y')) { e.preventDefault(); redo(); return }
 
-      const layer = state.draft && state.selectedLayerId && findLayer(state.draft, state.selectedLayerId)
-      if (!layer) return
-      if (e.key === 'Escape') { state.selectLayer(null); return }
-      if (mod && key === 'd') {
-        e.preventDefault()
-        const result = duplicateLayer(state.draft, layer.id)
-        state.edit(() => result.template, { select: result.id })
-        return
-      }
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault()
-        state.edit((t) => deleteLayer(t, layer.id), { select: null })
-        return
-      }
-      const step = e.shiftKey ? 10 : 1
-      const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key]
-      if (nudge && !layer.locked) {
-        e.preventDefault()
-        state.edit(
-          (t) => updateLayer(t, layer.id, { x: (Number(layer.x) || 0) + nudge[0], y: (Number(layer.y) || 0) + nudge[1] }),
-          { key: `nudge:${layer.id}` },
-        )
-      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -129,25 +101,7 @@ export default function DesignerView() {
         <TemplatePicker />
         <PreviewCanvas />
         <div className="w-80 min-w-[260px] flex-shrink bg-surface-1 border-l border-border flex flex-col overflow-hidden">
-          <div className="flex border-b border-border">
-            {[['design', 'Design'], ['json', 'JSON']].map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setSideTab(key)}
-                className={`flex-1 py-2 text-xs font-medium ${sideTab === key ? 'text-accent border-b-2 border-accent' : 'text-text-secondary hover:text-text-primary'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {sideTab === 'design' ? (
-            <>
-              <LayerPanel />
-              <LayerInspector />
-            </>
-          ) : (
-            <TemplateJsonPanel />
-          )}
+          <TemplateJsonPanel />
         </div>
       </div>
     </div>
