@@ -84,8 +84,9 @@ function convertLegacyTemplate(old) {
   const dpi = num(meta.dpi, 300);
   const mm = (px) => round2((num(px) / dpi) * 25.4);
   const pt = (px) => Math.round(((num(px) / dpi) * 72) * 10) / 10;
-  const cardW = mm(meta.width);
-  const cardH = mm(meta.height);
+  // Card size to 0.1 mm: 744 x 1039 px at 300 dpi is 62.99 x 87.97 mm, meant as poker 63 x 88.
+  const cardW = Math.round((num(meta.width) / dpi) * 254) / 10;
+  const cardH = Math.round((num(meta.height) / dpi) * 254) / 10;
   const notes = [];
   // Existing ids are kept where valid and unique; generated ids avoid every existing one.
   const reserved = new Set();

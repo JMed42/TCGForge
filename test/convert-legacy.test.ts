@@ -22,7 +22,7 @@ test('both Phase 0 fixtures convert to valid schema v1', () => {
 
 test('size, bleed and units', () => {
   const { template } = convertLegacyTemplate(standard)
-  assert.deepEqual(template.size, { widthMm: 62.99, heightMm: 87.97, bleedMm: 3, safeMm: 3, cornerRadiusMm: 2.71 })
+  assert.deepEqual(template.size, { widthMm: 63, heightMm: 88, bleedMm: 3, safeMm: 3, cornerRadiusMm: 2.71 }, 'rounded to 0.1 mm: poker size')
   assert.equal(template.name, 'Standard Card')
   // Background becomes full-bleed layers at the bottom of the stack.
   assert.deepEqual(template.layers.slice(0, 2).map((l: any) => l.id), ['background', 'background-image'])
