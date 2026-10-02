@@ -47,6 +47,7 @@ async function setup() {
   write(src, 'assets/fonts/Cinzel-Bold.ttf', 'FONT');
   write(src, 'assets/fonts/Other-Regular.ttf', 'UNUSED FONT');
   write(src, 'assets/art/hero.png', 'CARD ART');
+  write(src, 'assets/stray.png', 'UNRELATED IMAGE'); // must not be bundled by a {{image_path}} source
   write(projects[2].id, 'assets/icons/star.png', 'A DIFFERENT STAR');
   const row = await ipc.call('saveTemplate', src, TEMPLATE);
   return { dir, ipc, projects, row, write };

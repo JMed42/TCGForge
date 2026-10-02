@@ -37,6 +37,9 @@ function expandPattern(projectDir, src) {
   const parts = src.replace(/\\/g, '/').split('/');
   const fileGlob = parts.pop();
   if (parts.some((p) => p.includes('{{')) || !fileGlob.includes('{{')) return [];
+  // A source that is nothing but a binding ({{image_path}}) is card data, not a template file.
+  const literal = fileGlob.replace(/\{\{[\s\S]*?\}\}/g, '')
+  if (!parts.length && !literal) return [];
   const re = new RegExp(`^${fileGlob.split(/\{\{[\s\S]*?\}\}/).map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+')}$`, 'i');
   const out = [];
   for (const prefix of ['', 'assets', 'templates']) {
