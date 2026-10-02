@@ -1,9 +1,13 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron');
 const path = require('path');
 const database = require('./database');
 const { initDatabase, registerIpcHandlers } = database;
 const { registerCardDesignerIpc } = require('./cardDesigner/ipc');
 const { migrateLegacyData } = require('./legacyData');
+const assets = require('./assets');
+
+// tcg-asset:// must be declared privileged before the app is ready.
+assets.registerAssetScheme(protocol);
 
 // Detect dev mode without needing electron-is-dev
 const isDev = !app.isPackaged;
@@ -80,6 +84,12 @@ app.whenReady().then(async () => {
       if (migration.migrated) console.log(`Copied TCG Studio data from ${migration.from}`);
     }
     await initDatabase(app.getPath('userData'));
+    assets.registerAssetProtocol(protocol, net, app.getPath('userData'));
+    assets.watchProjectAssets(app.getPath('userData'), (change) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('assetChanged', change);
+      }
+    });
     registerIpcHandlers(ipcMain);
     registerCardDesignerIpc(ipcMain, {
       userDataPath: app.getPath('userData'),

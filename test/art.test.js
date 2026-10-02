@@ -20,7 +20,7 @@ test('importing art copies it into the project and dedupes by content', async ()
   const userData = tempDir('art');
   const src = png(path.join(tempDir('src'), 'Ember Drake (final).png'), '#ff8800');
   const rel = await art.importCardArt(userData, 3, src);
-  assert.match(rel, /^art\/ember_drake_final-[0-9a-f]{8}\.png$/);
+  assert.match(rel, /^assets\/art\/ember_drake_final-[0-9a-f]{8}\.png$/);
   assert.ok(fs.existsSync(path.join(userData, 'projects', '3', ...rel.split('/'))));
   assert.equal(await art.importCardArt(userData, 3, src), rel, 'same content, same file');
   fs.unlinkSync(src);
@@ -34,7 +34,7 @@ test('non-images are rejected', async () => {
   fs.writeFileSync(path.join(dir, 'fake.png'), 'not really a png');
   await assert.rejects(() => art.importCardArt(userData, 1, path.join(dir, 'notes.txt')), /unsupported image type/);
   await assert.rejects(() => art.importCardArt(userData, 1, path.join(dir, 'fake.png')));
-  assert.ok(!fs.existsSync(path.join(userData, 'projects', '1', 'art')), 'nothing copied');
+  assert.ok(!fs.existsSync(path.join(userData, 'projects', '1', 'assets')), 'nothing copied');
 });
 
 test('thumbnails are small and report the original size', async () => {

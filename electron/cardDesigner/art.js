@@ -1,5 +1,5 @@
-// Card art: images chosen in the card editor are copied into {userData}/projects/{id}/art/ and
-// the card stores the project-relative path ("art/ember-drake-1a2b3c4d.png"). Copies mean the
+// Card art: images chosen in the card editor are copied into {userData}/projects/{id}/assets/art/
+// and the card stores the project-relative path ("assets/art/ember-drake-1a2b3c4d.png"). Copies mean the
 // original file can move or be deleted; relative paths survive the data folder moving.
 
 const crypto = require('crypto');
@@ -17,7 +17,7 @@ function extOf(file) {
 
 /**
  * Copy an image into the project's art folder (deduplicated by content hash).
- * @returns {Promise<string>} project-relative path, e.g. "art/hero-1a2b3c4d.png"
+ * @returns {Promise<string>} project-relative path, e.g. "assets/art/hero-1a2b3c4d.png"
  */
 async function importCardArt(userDataPath, projectId, sourcePath) {
   const ext = extOf(sourcePath);
@@ -30,7 +30,7 @@ async function importCardArt(userDataPath, projectId, sourcePath) {
 
   const hash = crypto.createHash('sha256').update(data).digest('hex').slice(0, 8);
   const base = templates.slugify(path.basename(sourcePath, path.extname(sourcePath))).slice(0, 48) || 'art';
-  const rel = `art/${base}-${hash}.${ext === 'jpeg' ? 'jpg' : ext}`;
+  const rel = `assets/art/${base}-${hash}.${ext === 'jpeg' ? 'jpg' : ext}`;
   const dest = path.join(templates.projectDir(userDataPath, projectId), ...rel.split('/'));
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });

@@ -53,6 +53,12 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('app-close-requested', listener);
   },
   confirmClose: () => ipcRenderer.invoke('confirmClose'),
+  // A file under {userData}/projects/{id}/ changed on disk: { projectId, relPath }.
+  onAssetChanged: (callback) => {
+    const listener = (_, change) => callback(change);
+    ipcRenderer.on('assetChanged', listener);
+    return () => ipcRenderer.removeListener('assetChanged', listener);
+  },
   onExportProgress: (callback) => {
     const listener = (_, progress) => callback(progress);
     ipcRenderer.on('exportProgress', listener);
