@@ -2,21 +2,22 @@
 
 (Formerly TCG Studio.)
 
-Snapshot of the codebase as of the Card Designer Phase 0 spike (2026-09). Describes what the code
-actually does, which in a few places differs from the README.
+Snapshot of the codebase as of Card Designer Phase 2 (2026-10), built against the original
+6-phase spec in docs/card-designer-spec.md. Describes what the code actually does.
 
 ## Stack
 
 | Layer | Tech | Notes |
 |---|---|---|
 | Shell | Electron 33 | `electron/main.js`, CommonJS |
-| UI | React 18, plain JSX (no TypeScript) | `src/`, bundled by Vite 6 |
+| UI | React 18, JSX; designer engine in TypeScript | `src/`, bundled by Vite 6. TypeScript is type-check only (`npm run typecheck`); Node runs `.ts` tests directly |
 | State | Zustand 5 | one global store, `src/store.js` |
 | Styling | Tailwind 3 | custom dark tokens in `tailwind.config.js` |
 | Rich text | TipTap 2 | Rules & GDD editor |
-| Database | **sql.js** (SQLite compiled to WASM) | *not* better-sqlite3, despite the README |
+| Database | **sql.js** (SQLite compiled to WASM) | the spec names better-sqlite3; sql.js was already in use |
 | Icons | lucide-react | |
-| Card rendering | canvas 3 (node-canvas, N-API), pdfkit | added by the Card Designer module |
+| Card rendering | React DOM (`CardRender`), Electron `capturePage` / `printToPDF` | one renderer for the editor and every export |
+| Validation | zod 4 | template schema v1 |
 
 ## Process layout
 
@@ -24,8 +25,10 @@ actually does, which in a few places differs from the README.
 ┌──────────────── main process (Node) ────────────────┐
 │ electron/main.js         window, app lifecycle      │
 │ electron/database.js     sql.js DB + IPC handlers   │
-│ electron/cardDesigner/   template files, renderer,  │
-│                          exporters + IPC handlers   │
+│ electron/cardDesigner/   templates, exports, art,   │
+│                          .tcgtemplate + IPC         │
+│ electron/renderWindow.js hidden export window       │
+│ electron/assets.js       tcg-asset:// + file watch  │
 └───────────────▲─────────────────────────────────────┘
                 │ ipcRenderer.invoke / ipcMain.handle
 ┌───────────────┴── preload (electron/preload.js) ────┐
@@ -52,7 +55,7 @@ actually does, which in a few places differs from the README.
 - The base schema (version 0) is created with `CREATE TABLE IF NOT EXISTS` in `initDatabase`. Later changes are **migrations** in `electron/migrations.js`, tracked with `PRAGMA user_version`.
   - Pending steps run in one transaction, and a failure rolls back and stops startup.
   - Before the first change, the file is copied to `tcgforge.db.bak-v{N}`.
-  - Append new migrations; never edit a shipped one. Current: v1 `templates` table; v2 one-time import of Phase 0 template files.
+  - Append new migrations; never edit a shipped one. Current: v1 `templates` table; v2 one-time import of Phase 0 template files; v3 template schema v1 (pixel templates converted, originals kept in `legacy_content`, `version` column).
 - Foreign keys are off (sql.js default). Cascades are done by hand: `deleteProject` removes cards, documents and templates, and `deleteDocument` is recursive.
 
 ### Schema
@@ -62,7 +65,7 @@ actually does, which in a few places differs from the README.
 | `projects` | `name`, `description`, `card_schema` TEXT (JSON array) |
 | `cards` | `project_id`, `name`, `type`, `set_name`, `rarity`, `cost`, `power`, `toughness`, `rules_text`, `flavor_text`, `tags` (comma string), `custom_fields` TEXT (JSON object), `notes`, `image_path` |
 | `documents` | `project_id`, `parent_id` (self-tree), `title`, `type` (`folder`/`document`/`rule`), `content` (HTML), `sort_order` |
-| `templates` | `project_id`, `name`, `content` TEXT (template JSON) |
+| `templates` | `project_id`, `name`, `content` TEXT (schema v1 JSON), `version` (bumps on save), `legacy_content` (pre-v3 JSON) |
 
 All stat-like card fields (`cost`, `power`, `toughness`) are TEXT. JSON columns come back to the renderer as **strings**, and nothing parses them centrally.
 
@@ -85,63 +88,74 @@ All stat-like card fields (`cost`, `power`, `toughness`) are TEXT. JSON columns 
 
 ## Card Designer module
 
+Built against docs/card-designer-spec.md (the original 6-phase spec). Phase 2 (Template Designer) is complete, along with the Phase 1 foundations it needs: schema v1, the DOM renderer, `{{ }}` bindings, `visibleIf`, and `tcg-asset://` with file watching.
+
 ```
-electron/cardDesigner/
-  bind.js         {{field}} substitution — regex + null-prototype lookup, no eval
-  fit.js          pure fit math (cover/contain/stretch/tile, 9-point align)
-  textLayout.js   wrap / shrink (binary search) / clip measurement
-  fonts.js        registerFont from template assets/fonts, fallback to sans-serif
-  render.js       renderCard(card, template, {dpi, templateDir, projectDir, bleedMm}) → node-canvas
-  exporters.js    PNG / JPEG / PDF (pdfkit)
-  sheets.js       print-and-play sheet layout + multi-page PDF
-  art.js          card art import (copy into project) and thumbnails
-  templates.js    on-disk folders, template validation, Phase 0 file reader
-  ipc.js          registerCardDesignerIpc(ipcMain, deps)
-  fixtures/       sample templates, cards and generated art
-src/designerSlice.js                  editor state (draft, history, preview, guard), composed into the store
+src/designer/                      engine (TypeScript)
+  schema/types.ts, schema.ts       template schema v1 types + zod validator
+  expr/expr.ts, scope.ts           sandboxed expression language; card -> scope
+  layout/frame.ts, tree.ts         anchored frames (mm or %), layer tree helpers
+  render/CardRender.tsx            THE renderer (editor + every export)
+  render/RenderHost.tsx            #render route used by the hidden export window
+  render/fitText.ts, markup.ts, assetUrl.ts, useProjectFonts.ts
+  editor/ops.ts, geometry.ts       pure template edits and mm geometry
+src/designerSlice.js               editor state (draft, history, selection, guard, assets)
 src/components/CardDesigner/
-  DesignerView.jsx    layout, toolbar (undo/redo/discard/save, exports), keyboard shortcuts
-  CardStage.jsx       rendered card + select/move/resize/snap overlay
-  LayerPanel.jsx      layer list: select, rename, hide, lock, reorder, add, duplicate, delete
-  LayerInspector.jsx  properties of the selected layer, or template settings
-  TemplateJsonPanel.jsx  advanced JSON tab (Apply = one undo step)
-  ExportControls.jsx, PrintSheetsDialog.jsx, UnsavedChangesDialog.jsx, TemplatePicker.jsx
-  editor/             pure helpers: templateOps, history, geometry; form fields
-src/components/Cards/CardArtField.jsx  art picker in the card editor
-scripts/   card-designer-spike.mjs (headless checks), card-designer-seed.cjs (throwaway profile)
-test/      node --test suites (npm test)
+  DesignerView.jsx                 layout, toolbar (undo/redo/discard/save, exports)
+  DesignerCanvas.jsx               zoom/pan, guides, select/drag/resize/snap, align, group
+  LayersPanel.jsx                  layer tree (drag & drop, hide, lock, rename, add)
+  PropertiesPanel.jsx              frame anchors/units, style, bindings, template size
+  BindingInput.jsx                 binding picker with live preview
+  TemplatePicker.jsx, TemplateJsonPanel.jsx, ExportControls.jsx,
+  PrintSheetsDialog.jsx, UnsavedChangesDialog.jsx, editor/fields.jsx, editor/history.js
+electron/
+  renderWindow.js                  hidden offscreen window: capturePage (PNG/JPEG), printToPDF
+  assets.js                        tcg-asset:// protocol, path guard, fs.watch
+  migrations.js                    v1-v3
+  cardDesigner/ipc.js              template CRUD, exports, sheets, art, .tcgtemplate
+  cardDesigner/sheets.js           print-sheet layout (mm) and pages
+  cardDesigner/tcgtemplate.js      .tcgtemplate build / parse / install
+  cardDesigner/convertLegacyTemplate.js  pixel templates -> schema v1
+  cardDesigner/art.js, projectFonts.js, pngDpi.js, templates.js
 ```
 
 **Rendering**
-- Rendering happens only in the main process, with node-canvas. The on-screen card is an `<img>` of the PNG returned by `renderCard`, so preview and export go through the same code.
-- Coordinates are pixels at `template.meta.dpi`, and output scale is `outputDpi / meta.dpi`. The preview renders at `96 × zoom × devicePixelRatio` dpi and is shown at its natural device-pixel size. It is pixel-identical to an export at the same dpi, including for unsaved drafts (verified at both gates).
-- Shrink-to-fit stops at 6 pt physical (`6 × dpi / 72` template px) unless a layer sets `minFontSize`.
-- Decoded images are cached across renders, keyed by path + mtime + size, with an LRU bounded by entry count and total pixels.
-- **Memory:** node-canvas frees native surfaces in N-API finalizers, which only run when the event loop turns. Any loop rendering many cards must `await yieldToEventLoop()` between cards.
+- `CardRender` draws a template as absolutely positioned HTML in a fixed box measured in mm (`pxPerMm`). Frames resolve against the trim box or their group; stacks use flex layout.
+  - Supported: `text`, `richText` (`**bold**`, `*italic*`), `image`, `shape` (SVG, centred stroke), `group`, `stack`, `visibleIf`, `{{ }}` bindings.
+  - `iconRepeat` is outlined until Phase 4, and `{shortcode}` symbols render as typed until Phase 4.
+- Text fits by measuring the real layout: shrink in 0.25 pt steps down to `fit.minPt` (default 6 pt), then tighten leading, then hide or flag overflow. The full fit engine and `fit_cache` are Phase 3.
+- `onReady` fires once fonts are loaded, every `<img>` has settled and two frames have painted. Exports wait for it.
+- **Exports** render in a hidden offscreen window (`electron/renderWindow.js`) at the requested dpi.
+  - PNG via `capturePage`, with a pHYs DPI chunk. Corners are transparent unless bleed is included.
+  - JPEG is composited on white.
+  - Single-card PDF and print sheets go through an HTML imposition page and `printToPDF`, so text stays vector.
+- **Parity:** the editor keeps the card on whole pixels. At the same px/mm it matches an export pixel for pixel, except tiled backgrounds, where GPU and software resampling differ very slightly.
+- 63 × 88 mm with 3 mm bleed at 300 dpi = 815 × 1110 px, as the spec states.
 
-**Templates and assets**
-- Template JSON lives in the `templates` table and is addressed by numeric id.
-- Files stay on disk under `{userData}/projects/{id}/`:
-  - `templates/` is the asset root (`assets/…`, `assets/fonts/…`)
-  - `art/` holds card art copied in by the card editor
-- Relative paths resolve against `templates/`, then the project folder. Cards store art as `art/<name>-<hash>.<ext>`.
-- Template JSON is validated (meta size and dpi, 8000 px cap) before it's rendered or saved. Output dpi is clamped to 24–1200.
+**Templates, expressions, assets**
+- Schema v1 (spec, "Template schema"), validated with zod before saving or importing. The main process also does a structural check.
+  - Frames: two of left/right/width and two of top/bottom/height, in mm or `"N%"`.
+  - Extensions are marked "ext" in `schema/types.ts`.
+- Expressions: a hand-written tokenizer, Pratt parser and evaluator with a function whitelist. There's no eval, Function, property access or assignment, and there are limits on length, depth and steps. `{{expr}}` interpolates; `visibleIf` / `count` are bare.
+- Assets live on disk under `{userData}/projects/{id}/`:
+  - `assets/{art,frames,icons,fonts}`
+  - Phase 0 template assets under `templates/assets`
+- Assets are served as `tcg-asset://p/{id}/{path}`, and the path guard refuses anything outside the project.
+- `fs.watch` reports changes, and the editor bumps `?v=` so a replaced file shows immediately. Fonts in `assets/fonts` register as FontFaces by filename (`Cinzel-Bold.ttf` = family Cinzel, weight 700).
+- `.tcgtemplate`: the template plus the files it references (literal paths, matches of templated paths, fonts by family). Import is checked (paths, types, hashes), never overwrites (it renames on clash and rewrites references), and is zod-validated before anything is written.
 
 **Editor model**
-- The editor works on a `draft` object; nothing reaches the DB until Save.
-- Every edit is a pure function over the draft (`editor/templateOps.js`):
-  - `edit(mutator, {key})` adds one undo step; same-key edits within 500 ms merge.
-  - A drag is `beginGesture()` at the first movement, then `editLive()` for each move, so the whole drag is one undo step.
-- `dirty` compares the draft with the last saved JSON, so undoing back to it is clean.
-- Previews render the draft through IPC (`renderCard(..., {draft})`), throttled: one render in flight, the latest request queued, at least 100 ms apart.
-- Exports and print sheets also use the draft.
-- Paint order is `zIndex` (ties: array order). Reordering renumbers it 10, 20, 30… and keeps the array in paint order.
-- `guardUnsaved(proceed)` wraps every action that would drop a dirty draft (template switch or create, project switch, window close).
+- The editor edits a `draft`; nothing reaches the DB until Save, which bumps `templates.version`.
+  - `edit(mutator, {key})` is one undo step, with same-key edits within 500 ms merged.
+  - A drag is `beginGesture()` then `editLive()`, so one undo step.
+- `dirty` compares the draft with the last saved JSON.
+- Paint order is array order (first = bottom). Containers paint their children in order.
+- Moving, resizing, grouping, ungrouping and moving between containers keep each layer's position and anchoring (`frameFromRect`). Changing the card size reflows through the frames.
+- `guardUnsaved(proceed)` wraps template switch, create and import, project switch, and window close.
 
 **Print sheets**
 - The layout uses the card's physical size, a 6.35 mm margin and the bleed, in whichever orientation fits more cards.
-- For 63×88 mm cards: Letter fits 9 without bleed and 6 with 3 mm; A4 fits 9 and 8.
-- Output is one multi-page PDF of 300 dpi JPEGs at exact size, with crop marks in the margin and each card embedded once.
+- For 63×88 mm cards: Letter fits 9 without bleed and 6 with 3 mm; A4 fits 9 and 8. Crop marks extend the trim lines into the margin.
 
 ## Card data shape (DB vs UI)
 
@@ -163,5 +177,7 @@ The DB stores `tags` as one comma-separated TEXT value and `custom_fields` / `ca
 2. The card editor's custom-fields section never renders: its schema lookup is stubbed to `[]`. Existing `custom_fields` values are preserved on save.
 3. `index.css` scrollbar rules reference `--color-surface-*` CSS variables that are never defined.
 4. There's no linter. Tests use Node's built-in runner: `npm test`.
-5. The native file dialogs (card art, single and batch export, print sheets) couldn't be driven by automation. The code paths behind them are tested through the dialog-free IPC variants.
-6. Template image and font upload isn't built yet: asset paths are typed. Export Project doesn't include templates or art yet.
+5. The native file dialogs (card art, exports, print sheets, .tcgtemplate) couldn't be driven by automation. The code behind them is tested through the dialog-free IPC variants.
+6. Template images and fonts are added by putting files in `{project}/assets/…` (they appear immediately); there is no upload button yet. Export Project doesn't include templates or art yet.
+7. Not built yet from the spec's Phase 1 ("Phase 1b"): `template_rules`, the Cards-screen preview pane, CSV/XLSX import, the `assets` table, `cards.template_override_id`.
+8. Tiled backgrounds can differ very slightly between the editor (GPU) and exports (software raster) at non-integer scales; everything else matches pixel for pixel.

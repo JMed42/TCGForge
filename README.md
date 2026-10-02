@@ -7,7 +7,7 @@ A lightweight desktop app for trading card game developers. Manage cards, write 
 - **Multi-Project Support** — Switch between unlimited game projects, each with their own cards and documents
 - **Card Database Manager** — Full CRUD with filtering, sorting, tagging, bulk operations, and custom fields
 - **Rules & GDD Editor** — Rich text editor with document tree, folder organization, rule tagging, and cross-referencing
-- **Card Designer** — Visual template editor: drag, resize and snap layers; layer list and property inspector; undo/redo. Bind any card field with `{{field}}`. Export PNG (96/300 dpi), PDF, all cards at once, or print-and-play sheets (Letter/A4, bleed, crop marks). The on-screen card is pixel-identical to the export.
+- **Card Designer** — Visual template designer: zoom and pan, bleed/trim/safe guides, drag, resize, snapping, multi-select, align and distribute, groups and auto-layout stacks, a layer tree, and a properties panel with a binding picker (`{{name}}`, `{{upper(name)}}`, `visibleIf` conditions). Layouts are anchored in mm, so changing the card size reflows them. Step through real cards while you design. Export PNG (any dpi), vector PDF, all cards at once, or print-and-play sheets (Letter/A4, bleed, crop marks). Share templates as `.tcgtemplate` files. What the editor shows is what exports.
 - **Card Art** — Attach art in the card editor. Images are copied into the project.
 - **SQLite Storage** — Fast local database with JSON import/export for portability
 - **Dark Theme** — Purpose-built dark interface designed for long sessions
@@ -48,7 +48,8 @@ This creates a distributable Electron app in the `release/` directory.
 - **React 18** — UI framework
 - **Vite** — Fast dev server and bundler
 - **SQLite** (sql.js, WebAssembly) — Embedded database
-- **node-canvas + pdfkit** — Off-screen card rendering and PDF export
+- **React DOM card renderer** — one renderer for the editor and exports (Electron capturePage / printToPDF)
+- **zod + TypeScript** — template schema validation and type-checking for the designer engine
 - **TipTap** — Rich text editor for rules and GDD documents
 - **Zustand** — Lightweight state management
 - **Tailwind CSS** — Utility-first styling
@@ -62,16 +63,19 @@ TCGForge/
 │   ├── main.js          # Electron main process
 │   ├── preload.js       # IPC bridge (window.api)
 │   ├── database.js      # SQLite operations
-│   └── cardDesigner/    # Card renderer, templates, export
-├── scripts/             # Card Designer spike checks and dev seed data
+│   ├── renderWindow.js  # hidden export window (PNG/PDF from the same renderer)
+│   ├── assets.js        # tcg-asset:// protocol and file watching
+│   └── cardDesigner/    # templates, exports, print sheets, .tcgtemplate
+├── scripts/             # dev seed data for a throwaway profile
 ├── src/
 │   ├── App.jsx          # Root component
 │   ├── store.js         # Zustand state management
+│   ├── designer/        # Card Designer engine (TypeScript): schema, expressions, layout, renderer
 │   ├── components/
 │   │   ├── Layout/      # Sidebar, TopBar
 │   │   ├── Projects/    # Project selector, form, switcher
 │   │   ├── Cards/       # Card table, editor, filters, bulk actions
-│   │   ├── CardDesigner/ # Template picker, preview, export
+│   │   ├── CardDesigner/ # Designer canvas, layers, properties, export
 │   │   └── Rules/       # Document tree, TipTap editor, toolbar
 │   └── index.css        # Tailwind + custom styles
 ├── package.json
@@ -81,7 +85,7 @@ TCGForge/
 
 ## Database
 
-Data is stored in a SQLite database at `{appData}/TCGForge/tcgforge.db` (on Windows, `%APPDATA%\TCGForge`). Card Designer templates live beside it in `projects/{id}/templates/`.
+Data is stored in a SQLite database at `{appData}/TCGForge/tcgforge.db` (on Windows, `%APPDATA%\TCGForge`). Template JSON lives in the database; images and fonts live beside it in `projects/{id}/assets/` (`art`, `frames`, `icons`, `fonts`). Replacing a file there updates every card immediately.
 
 On first launch, data from the app's previous name (TCG Studio: `%APPDATA%\tcg-studio` or `%APPDATA%\TCG Studio`) is copied over automatically. The old folder is left untouched.
 
