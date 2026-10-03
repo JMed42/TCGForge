@@ -111,12 +111,13 @@ export default function DocumentTree() {
     <div className="w-[280px] bg-surface-1 border-r border-border flex flex-col h-full">
       {/* Header */}
       <div className="p-4 border-b border-border">
-        <h2 className="text-text-primary font-semibold text-sm mb-3">Documents</h2>
+        <h2 className="text-text-primary font-semibold text-sm">Game Docs</h2>
+        <p className="text-[11px] text-text-muted mb-3" data-testid="game-docs-intro">Your game's rulebook, lore and design notes. (Card data lives under Cards; card looks under Designer.)</p>
         <div className="flex gap-2">
           <button
             onClick={handleNewDocument}
             className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-surface-3 hover:bg-surface-4 text-text-primary text-xs rounded transition-colors"
-            title="New Document"
+            title="New document: a page of rules, lore or notes"
           >
             <FileText size={14} />
             <span>Doc</span>
@@ -124,7 +125,7 @@ export default function DocumentTree() {
           <button
             onClick={handleNewFolder}
             className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-surface-3 hover:bg-surface-4 text-text-primary text-xs rounded transition-colors"
-            title="New Folder"
+            title="New folder to group documents"
           >
             <FolderPlus size={14} />
             <span>Folder</span>
@@ -132,7 +133,7 @@ export default function DocumentTree() {
           <button
             onClick={handleNewRule}
             className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-surface-3 hover:bg-surface-4 text-accent text-xs rounded transition-colors"
-            title="New Rule"
+            title="New rule entry: one numbered rule of your game (keywords will link to these in Phase 4)"
           >
             <BookMarked size={14} />
             <span>Rule</span>
