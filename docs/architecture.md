@@ -33,6 +33,7 @@ built against the original 6-phase spec in docs/card-designer-spec.md. Describes
 │ electron/import/         CSV/XLSX card import + IPC │
 │ electron/cardModel.js    card types & fields + IPC  │
 │ electron/fitCache.js     fit results (fit_cache)    │
+│ electron/library.js      symbols, keywords, vars    │
 │ electron/clipboard.js    clipboard text and images  │
 └───────────────▲─────────────────────────────────────┘
                 │ ipcRenderer.invoke / ipcMain.handle
@@ -60,9 +61,9 @@ built against the original 6-phase spec in docs/card-designer-spec.md. Describes
 - The base schema (version 0) is created with `CREATE TABLE IF NOT EXISTS` in `initDatabase`. Later changes are **migrations** in `electron/migrations.js`, tracked with `PRAGMA user_version`.
   - Pending steps run in one transaction, and a failure rolls back and stops startup.
   - Before the first change, the file is copied to `tcgforge.db.bak-v{N}`.
-  - Append new migrations; never edit a shipped one. Current: v1 `templates` table; v2 one-time import of Phase 0 template files; v3 template schema v1 (pixel templates converted, originals kept in `legacy_content`, `version` column); v4 `template_rules`, `assets`, `cards.template_override_id`; v5 `card_fields`, `card_types`, `cards.card_type_id` (every project gets a "Card" type with the standard fields plus the custom keys its cards hold); v6 `fit_cache`.
+  - Append new migrations; never edit a shipped one. Current: v1 `templates` table; v2 one-time import of Phase 0 template files; v3 template schema v1 (pixel templates converted, originals kept in `legacy_content`, `version` column); v4 `template_rules`, `assets`, `cards.template_override_id`; v5 `card_fields`, `card_types`, `cards.card_type_id` (every project gets a "Card" type with the standard fields plus the custom keys its cards hold); v6 `fit_cache`; v7 `symbols`, `keywords`, `variables`, `projects.settings`, `cards.reminders`.
 - Multi-statement writes (rule lists, imports, asset index updates, model changes, bulk card edits, deletes) go through `inTransaction(fn)`: one transaction, one save. `exec(sql)` runs a statement without saving, for use inside it.
-- Foreign keys are off (sql.js default). Cascades are done by hand: `deleteProject` removes cards, documents, templates, rules, asset rows and fit results; `deleteCard` / `bulkDeleteCards` remove the cards' fit results in the same transaction; `deleteTemplate` removes its rules and clears card overrides and type defaults that point at it; `deleteDocument` is recursive.
+- Foreign keys are off (sql.js default). Cascades are done by hand: `deleteProject` removes cards, documents, templates, rules, asset rows, fit results and the library (symbols, keywords, variables); `deleteCard` / `bulkDeleteCards` remove the cards' fit results in the same transaction; `deleteTemplate` removes its rules and clears card overrides and type defaults that point at it; `deleteDocument` is recursive and clears keywords' `rule_ref` to the deleted documents.
 
 ### Schema
 
@@ -77,8 +78,11 @@ built against the original 6-phase spec in docs/card-designer-spec.md. Describes
 | `card_fields` | `project_id`, `key` (unique per project), `label`, `kind` (text/longText/number/choice/yesNo/image/tags), `options` (JSON), `default_value`, `help` |
 | `card_types` | `project_id`, `name` (unique per project), `color`, `sort_order`, `template_id` (the type's default template), `field_keys` (ordered JSON list) |
 | `fit_cache` | `card_id` (primary key), `project_id`, `template_id`, `template_version`, `data_hash` (hash of every fit input), `results_json` (fit result per text layer), `computed_at`. Computed data: not exported, rebuilt when missing |
+| `symbols` | `project_id`, `shortcode` (unique per project), `rel_path` (image under `assets/`, usually `assets/icons`), `scale` (× the text size), `baseline_offset` (em) |
+| `keywords` | `project_id`, `name` (unique per project, any case), `params_json` (`[{ name, kind: number\|word }]`), `reminder_template` (template language), `rule_ref` (a Game Docs rule entry, nullable) |
+| `variables` | `project_id`, `key` (UPPER_CASE, unique per project), `value`, `description` |
 
-`cards` also has `template_override_id` (v4, nullable): a card's own template choice, which beats everything; and `card_type_id` (v5): every card has one type. Card queries join the type in as `card_type` (name) and `card_type_template_id`.
+`cards` also has `template_override_id` (v4, nullable): a card's own template choice, which beats everything; `card_type_id` (v5): every card has one type; and `reminders` (v7): null = the project/set default, 1 = show, 0 = hide keyword reminder text. Card queries join the type in as `card_type` (name) and `card_type_template_id`. `projects.settings` (v7) is JSON: `{ reminders: { show, sets: { "<set name>": true|false } } }`.
 
 All stat-like card fields (`cost`, `power`, `toughness`) are TEXT. JSON columns come back to the renderer as **strings**, and nothing parses them centrally.
 
@@ -90,7 +94,7 @@ All stat-like card fields (`cost`, `power`, `toughness`) are TEXT. JSON columns 
 
 ## Renderer
 
-- **Navigation:** there's no router. `App.jsx` shows `ProjectSelector` until `activeProjectId` is set, then `Sidebar` plus a view chosen by the `activeView` string (`cards` | `types` | `designer` | `rules` (Game Docs) | `settings`).
+- **Navigation:** there's no router. `App.jsx` shows `ProjectSelector` until `activeProjectId` is set, then `Sidebar` plus a view chosen by the `activeView` string (`cards` | `types` | `designer` | `library` | `rules` (Game Docs) | `settings`). `LibraryProvider` wraps the open project, so every `CardRender` in the window gets the project library.
 - **Store (`src/store.js`):** a single `create((set, get) => …)`. The pattern for async actions is:
   - call `window.api?.x?.(…)` inside try/catch and `console.error` on failure
   - after any mutation, reload the whole list (`loadCards`, `loadDocuments`)
@@ -101,7 +105,7 @@ All stat-like card fields (`cost`, `power`, `toughness`) are TEXT. JSON columns 
 
 ## Card Designer module
 
-Built against docs/card-designer-spec.md (the original 6-phase spec). Phase 1 (renderer and live preview, including "Phase 1b": Cards preview, template rules, CSV/XLSX import, assets index), Phase 2 (Template Designer) and Phase 3 (fit engine) are complete, plus review round 1: card types and fields (the project's own data model), a Cards tab with a form and a Database tab for batch edits, clipboard art, and clearer naming (Game Docs, Template assignment).
+Built against docs/card-designer-spec.md (the original 6-phase spec). Phase 1 (renderer and live preview, including "Phase 1b": Cards preview, template rules, CSV/XLSX import, assets index), Phase 2 (Template Designer), Phase 3 (fit engine) and Phase 4 (symbols, keywords, variables) are complete, plus review round 1: card types and fields (the project's own data model), a Cards tab with a form and a Database tab for batch edits, clipboard art, and clearer naming (Game Docs, Template assignment).
 
 ```
 src/designer/                      engine (TypeScript)
@@ -116,7 +120,17 @@ src/designer/                      engine (TypeScript)
   model/renameField.ts             rename a field key in every binding (token-aware)
   fit/inputs.ts, hash.ts           the fit-check key: hash of every fit input; 300-dpi scale
   fit/summary.ts, bindings.ts      statuses, hardness order, Fit filter, wording; fields per text layer
+  library/library.ts               library rows -> what the renderer uses; signature; reminders on/off
+  library/keywords.ts              keyword matchers, reminder text insertion
+  library/variables.ts             {{KEY}} in card text; variable key shape
+  library/iconRepeat.ts            icon positions (gap, squeeze, reverse), count clamp
+  library/LibraryContext.ts        React context every CardRender reads (empty by default)
 src/cardModel/model.js             helpers over the card model (fields of a type, labels, kinds)
+src/librarySlice.js                library rows, Library tab and focus, save/delete/rename actions
+src/components/Library/
+  LibraryView.jsx, LibraryProvider.jsx  Library screen (tabs); compiles the store's rows for renders
+  SymbolsTab.jsx, KeywordsTab.jsx, VariablesTab.jsx, FontsTab.jsx
+  whereUsed.js, WhereUsedDialog.jsx  where a symbol/keyword/variable is used; rename rewrites
 src/cardModelSlice.js              card types & fields state; key rename with template rewrites
 src/fitSlice.js                    fit cache, file signatures, progress, live and Designer results
 src/designerSlice.js               editor state (draft, history, selection, guard, assets)
@@ -151,7 +165,8 @@ src/components/CardDesigner/
 electron/
   renderWindow.js                  hidden offscreen window: capturePage (PNG/JPEG), printToPDF
   assets.js                        tcg-asset:// protocol, path guard, fs.watch
-  migrations.js                    v1-v6
+  migrations.js                    v1-v7
+  library.js                       symbols, keywords, variables, reminder settings: validation, one-transaction rename
   cardModel.js                     card types & fields: validation, starters, rename, import changes
   fitCache.js                      fit_cache rows: list, batched save, clear (Re-check all)
   clipboard.js                     clipboard text and images (bitmap or copied file)
@@ -167,8 +182,7 @@ electron/
 
 **Rendering**
 - `CardRender` draws a template as absolutely positioned HTML in a fixed box measured in mm (`pxPerMm`). Frames resolve against the trim box or their group; stacks use flex layout.
-  - Supported: `text`, `richText` (`**bold**`, `*italic*`), `image`, `shape` (SVG, centred stroke), `group`, `stack`, `visibleIf`, `{{ }}` bindings.
-  - `iconRepeat` is outlined until Phase 4, and `{shortcode}` symbols render as typed until Phase 4.
+  - Supported: `text`, `richText` (`**bold**`, `*italic*`), `image`, `shape` (SVG, centred stroke), `group`, `stack`, `iconRepeat`, `visibleIf`, `{{ }}` bindings, `{shortcode}` symbols and keyword reminder text (see **Library** below).
 - Text fits by measuring the real layout (see **Fit engine** below).
 - `onReady` fires once fonts are loaded, every `<img>` has settled and two frames have painted. Exports wait for it. `measureOnly` + `onFits` (fit checks) skip loading images whose size is set by their frame and report as soon as layout is done, and again only when a result, the template or the card changes.
 - **Exports** render in a hidden offscreen window (`electron/renderWindow.js`) at the requested dpi.
@@ -194,7 +208,7 @@ electron/
 - The editor edits a `draft`; nothing reaches the DB until Save, which bumps `templates.version`.
   - `edit(mutator, {key})` is one undo step, with same-key edits within 500 ms merged.
   - A drag is `beginGesture()` then `editLive()`, so one undo step.
-- `dirty` compares the draft with the last saved JSON.
+- `dirty` compares the draft with the last saved template as key-order-independent JSON (`stableStringify`): the saved copy comes back from zod with its keys in schema order.
 - Paint order is array order (first = bottom). Containers paint their children in order.
 - Moving, resizing, grouping, ungrouping and moving between containers keep each layer's position and anchoring (`frameFromRect`). Changing the card size reflows through the frames.
 - `guardUnsaved(proceed)` wraps template switch, create and import, project switch, and window close.
@@ -216,7 +230,7 @@ electron/
 - The read-only Fit column (after Name) shows each card's hardest text layer by the field it shows; paste, fill-down and clear skip it, copy gives its text, and it sorts hardest first.
 
 **Clipboard art**
-- `pasteImageFromClipboard` saves a bitmap (browser, image editor, Snipping Tool) or a copied image file (Explorer `FileNameW`) into `assets/art` (card art) or `assets/images` (template frames and icons), deduplicated by hash. Used by image fields, the preview's Paste art, Ctrl+V on art cells and Designer image layers.
+- `pasteImageFromClipboard` saves a bitmap (browser, image editor, Snipping Tool) or a copied image file (Explorer `FileNameW`) into `assets/art` (card art), `assets/images` (template frames) or `assets/icons` (Library symbols), deduplicated by hash. Used by image fields, the preview's Paste art, Ctrl+V on art cells, Designer image layers and the symbol editor.
 
 **Cards screen (live loop)**
 - The grid keeps a cell cursor (arrows, Tab, Enter, Home/End). Enter, F2, double-click or typing opens an in-place editor; Enter/Tab/blur commit, Esc cancels, Delete clears, Ctrl+Z/Ctrl+Y undo and redo committed cell edits.
@@ -229,11 +243,21 @@ electron/
 - Text with a size of its own (a frame, or a set height in a stack) fits itself. Text that sizes to its content inside a stack is fitted by the stack (`fitStack`, run by `StackView` against the DOM): layers give way by `priority`, the highest number first, and equal priorities shrink together; after each hide the rest start again from full size; what is still cut off at the stack's end is flagged with how much. A stack's `fitOrder: 'hideFirst'` hides before shrinking (the spec's open question; default shrink first).
 - Each result: status (fits / shrunk / hidden / overflow), size and line height used, starting and minimum size, `fill` (space needed at the starting size ÷ space available), overflow in mm and lines (or `wide`), spare lines.
 - **Measured one way:** every status the app reports (Fit column, filter, badges, budget lines, Designer readout and worst case) comes from a measure-only `CardRender` in a hidden area of the app window at 300 dpi, with the project's fonts loaded.
-- **The cache key** (`fit/inputs.ts`, `components/Fit/fitKey.js`) hashes the card's scope (what the template sees, including `card_type`), the template it resolves to and that template's saved content, the project font files whose family the template uses (sha256 from the assets index), the project's image files only if the template lets an image size itself inside a stack, and the fit engine and browser versions. A change to any of them changes the hash, so nothing has to invalidate the cache.
+- **The cache key** (`fit/inputs.ts`, `components/Fit/fitKey.js`) hashes the card's scope (what the template sees, including `card_type`), the template it resolves to and that template's saved content, the project font files whose family the template uses (sha256 from the assets index), the project's image files only if the template lets an image size itself inside a stack, the library signature (symbols with their image sizes, keywords, variables, reminder settings), the card's own reminder choice, and the fit engine and browser versions. A change to any of them changes the hash, so nothing has to invalidate the cache.
 - **Background check** (`FitRunner`, mounted while a project is open): cards whose hash has no cached result are measured a few at a time in idle callbacks (the active card first; the batch size adapts to stay near 12 ms). Results go to `store.fitCache` at once and to `fit_cache` at most every 2 s and at the end. `openProject` loads templates, exceptions, file signatures and the cache, so it runs on any screen. Requests from the Designer (`fitQueue.js`) go first.
 - **Live budget** (`LiveFitProbe`, on the Cards screen): measures the active card with `liveEdit` applied on each keystroke into `store.liveFit`; the form's budget lines, the cell editor, the preview's fit lines and the active card's Fit cell read it. When nothing is being typed its result is also the card's cache entry.
 - **Designer** (`DesignerFitProbe`): the draft on the sample card, 150 ms after the last edit, into `store.designerFit` (outlines for overflowing / hidden text, the Properties readout). Worst case measures the draft on the sample cards through the fit queue (or uses the cache when the template is saved and current) and ranks by `compareHardness`: overflowing most, then hidden, then shrunk furthest below its size, then fullest.
 - Exports still measure at their own scale. Gate check (66 cards, 391 text layers): exports at 300 and 600 dpi agree with the cache on every layer; at 96 and 150 dpi, 2 layers came out one 0.25 pt step larger (7.5 vs 7.25 pt). Print sheets lay out at 96 dpi.
+
+**Library (Phase 4): symbols, keywords, variables**
+- One library per project (`electron/library.js`, IPC `getLibrary`, `saveSymbol`, `saveKeyword`, `saveVariable`, `deleteLibraryItem`, `saveLibrarySettings`, `renameLibraryItem`). The store loads it on project open and after any asset change; `LibraryProvider` compiles it (`compileLibrary`) into a `LibraryContext` value. Export jobs (`card`, `pages`) carry the library rows, and `RenderHost` provides the same context, so the editor, the preview, fit checks and every export draw it the same way.
+- **Symbols:** a shortcode plus an image path (PNG/JPEG/GIF/SVG; SVGs are checked as documents, at most 2 MB). `parseRichText` / `parseSymbols` turn known `{code}` into a symbol run: an inline `<img>` with an explicit em width and height (`scale`, the image's aspect from the assets index or the file header) and `vertical-align` from `baseline_offset`, so layout never waits for the image. Measure-only renders use an empty box of the same size. An unknown `{code}` stays as typed with a warning; `\{` writes a brace; `{{` is never a symbol.
+- **Keywords:** compiled to Unicode, case-insensitive, whole-word regexes (never inside `{…}`); parameters follow the name (`number`: digits or a single capital letter; `word`). `applyKeywords` runs on a text layer's interpolated text when the layer has `keywords: true` (new Rich Text layers; off on older layers until switched on) and reminders are on for the card. It inserts the reminder, interpolated with the parameters in scope, as `*(…)*` after the first occurrence's punctuation and closing `**`/`*`. A keyword already followed by `(` keeps the reminder written on the card. Longer names win (`Burn Bright` before `Burn`). Template errors become render warnings.
+- **Reminders on or off:** the card's `reminders` (1/0), else the project setting for the card's Set (`set_name`), else the project default (`remindersOn`).
+- **Variables:** UPPER_CASE keys, so they never clash with field keys. `cardScope(card, variables)` puts them in scope (templates, `visibleIf`, `count`) and replaces `{{KEY}}` inside card values once, without nesting; an unknown key stays as typed with a warning. Template-assignment exceptions don't see them yet.
+- **Icon repeat:** `count` (bare expression, clamped to 0–50), `icon` (a shortcode, may use `{{ }}`), `direction` (ltr/rtl/ttb/btt), `gapMm` (default 0.5). Icons are as big as the frame's short side; when N don't fit, the gap shrinks (overlapping if needed).
+- **Where used and rename** (`components/Library/whereUsed.js`): cards (every text value, custom fields included), templates (text and icon repeaters for symbols; token-aware `renameFieldInTemplate` for variables), exceptions (variables) and Game Docs documents (listed with Open, never rewritten). The renderer computes the rewrites; `renameLibraryItem` applies the item change, card patches, template contents and exception conditions in one transaction. Keyword renames keep each match's case.
+- **Game Docs:** a keyword links to a rule entry (`rule_ref`); the rule entry shows its keywords as chips that open them in the Library.
 
 **Template assignment** (template_rules are shown as "exceptions")
 - `resolveTemplate` (TypeScript, in the renderer) picks the card's own choice → the first exception in priority order whose condition is true → the card type's template → the project default (lowest template id). Conditions use the same sandboxed evaluator as bindings; an error counts as false and is reported.
@@ -282,3 +306,6 @@ The DB stores `tags` as one comma-separated TEXT value and `custom_fields` / `ca
 10. Fit results are measured at 300 dpi. On borderline cards, renders at screen scale and the 96-dpi print-sheet layout can come out one 0.25 pt step different (2 of 391 text layers in the Phase 3 gate).
 11. The Database grid renders every row: opening it with 300 cards takes about 0.6 s (the Fit column adds 70–100 ms of that). Virtualising the rows would remove it.
 12. Installing or removing a system font doesn't change any fit-check input; "Re-check all" measures every card again.
+13. Any library change (a symbol, keyword, variable or reminder setting) re-checks every card in the project, because the library signature is one fit input (66 cards in about 1 s in the Phase 4 gate). Per-item tracking could narrow it if large sets need it.
+14. Variables don't work in template-assignment exceptions yet; `.tcgtemplate` files don't carry the symbols a template uses.
+15. An image pasted as a bitmap through the Windows clipboard can lose its transparency (many programs put no alpha channel on the clipboard). Symbols with transparency are best added as a file (Choose file, drop, or the icons folder).

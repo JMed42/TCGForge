@@ -4,7 +4,7 @@
 //
 // An image on the clipboard is either bitmap data (copied from a browser, an image editor, the
 // Snipping Tool) or a copied image file (Explorer). Both end up as a file in the project, in
-// assets/art (card art) or assets/images (template frames and icons).
+// assets/art (card art), assets/images (template frames) or assets/icons (Library symbols).
 
 const fs = require('fs');
 const path = require('path');

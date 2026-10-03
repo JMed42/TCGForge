@@ -9,6 +9,7 @@ A lightweight desktop app for trading card game developers. Manage cards, write 
 - **Cards** — Two tabs over the same cards, with a live render beside them. **Cards**: a list and a form with the card type's fields, saved as you type. **Database**: a spreadsheet grid for batch edits — copy and paste blocks with Excel or Google Sheets, fill down, set a field on many cards, filter on any field, undo every batch in one step. Import cards from CSV or Excel (.xlsx) onto your fields, with a preview before anything is written.
 - **Template Assignment** — Each card type has its template; exceptions pick another for some cards (`rarity == "Mythic"` → foil frame); any card can choose its own. Batch exports and print sheets can follow it.
 - **Fit Checks** — Every text layer shrinks to its minimum size, tightens its line spacing, then hides (in a stack, flavor text gives way before card text) or is flagged as overflowing. The whole set is checked in the background: a Fit column and filter on the Database tab ("overflow", "shrunk below 7 pt"), badges in the card list, a live budget under the field you are typing in ("Effect: fits at 8 pt · about 2 lines to spare"), and a Worst case button in the Designer that jumps to the card where the selected text is hardest to fit.
+- **Library** — Building blocks shared by every card in a project. **Symbols**: type `{energy}` or `{T}` in any text and get the icon inline, sized to the line and sitting on the baseline (PNG, JPEG, GIF or crisp SVG). **Keywords**: define "Burn X" once with reminder text such as `(Deal {{X}} damage{{if(X > 1, " split as you choose", "")}}.)`, and cards that say "Burn 3" get it in italics; switch reminders off for the project, per set or per card, link the keyword to its rule in Game Docs, and rename it everywhere with a list of where it is used. **Variables**: write `{{HAND_SIZE}}` in cards or templates and change the value once. **Icon repeat** draws a symbol N times (cost pips). The Fonts tab lists the project's font files.
 - **Clipboard Art** — Copy an image anywhere (a browser, an image editor, a file in Explorer) and press Paste on a card's art, in the preview, on an art cell, or on a template's image layer.
 - **Game Docs** — Your game's rulebook, lore and design notes: rich text documents in folders, with numbered rule entries
 - **Card Designer** — Visual template designer: zoom and pan, bleed/trim/safe guides, drag, resize, snapping, multi-select, align and distribute, groups and auto-layout stacks, a layer tree, and a properties panel with a binding picker (`{{name}}`, `{{upper(name)}}`, `visibleIf` conditions). Layouts are anchored in mm, so changing the card size reflows them. Step through real cards while you design. Export PNG (any dpi), vector PDF, all cards at once, or print-and-play sheets (Letter/A4, bleed, crop marks). Share templates as `.tcgtemplate` files. What the editor shows is what exports.
@@ -70,6 +71,7 @@ TCGForge/
 │   ├── assets.js        # tcg-asset:// protocol and file watching
 │   ├── assetIndex.js    # assets table and missing-art report
 │   ├── fitCache.js      # stored fit results
+│   ├── library.js       # symbols, keywords, variables
 │   ├── import/          # CSV/XLSX card import
 │   └── cardDesigner/    # templates, exports, print sheets, .tcgtemplate
 ├── scripts/             # dev seed data for a throwaway profile
@@ -84,6 +86,7 @@ TCGForge/
 │   │   ├── CardDesigner/ # Designer canvas, layers, properties, export
 │   │   ├── CardTypes/   # Card types and fields
 │   │   ├── Fit/         # background fit check, live budget, Fit column pieces
+│   │   ├── Library/     # symbols, keywords, variables, fonts; where used
 │   │   └── Rules/       # Game Docs: document tree, TipTap editor, toolbar
 │   └── index.css        # Tailwind + custom styles
 ├── package.json
@@ -100,11 +103,12 @@ On first launch, data from the app's previous name (TCG Studio: `%APPDATA%\tcg-s
 The schema includes:
 
 - **projects** — Name, description, custom card schema (JSON)
-- **cards** — Name, type, set, rarity, cost, power, toughness, rules text, flavor text, tags, custom fields, optional template override
+- **cards** — Name, type, set, rarity, cost, power, toughness, rules text, flavor text, tags, custom fields, optional template override, reminder text choice
 - **templates** / **template_rules** — Card layouts (JSON) and the rules that pick one per card
 - **assets** — Index of the image and font files in each project folder
 - **card_types** / **card_fields** — Each project's card types and the fields they use
-- **fit_cache** — Each card's fit results, kept while its text, template and fonts are unchanged
+- **fit_cache** — Each card's fit results, kept while its text, template, fonts and library are unchanged
+- **symbols** / **keywords** / **variables** — Each project's library (symbol images live in `assets/icons`)
 - **documents** — Hierarchical tree (folders, documents, rules) with rich text content
 
 ## Import/Export
