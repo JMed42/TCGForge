@@ -117,6 +117,17 @@ class RenderService {
     });
   }
 
+  /**
+   * Template per card by the project's rules (evaluated in the render window, which runs the
+   * sandboxed expression engine). @returns {Promise<Map<number, number|null>>}
+   */
+  resolveTemplates({ cards, rules, templateIds }) {
+    return this.enqueue(async () => {
+      const res = await this.send({ kind: 'resolve', cards, rules, templateIds });
+      return new Map(res.resolutions);
+    });
+  }
+
   close() {
     if (this.win && !this.win.isDestroyed()) this.win.destroy();
   }

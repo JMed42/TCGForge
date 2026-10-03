@@ -57,8 +57,12 @@ function templateRowOut(row) {
  *   userDataPath, getCard(id), queryCards(projectId, filters),
  *   listTemplates(projectId), getTemplate(id), insertTemplate(projectId, name, content),
  *   updateTemplate(id, name, content), deleteTemplate(id),
- *   render: RenderService, dialog, shell, getWindow()
+ *   render: RenderService, dialog, shell, getWindow(),
+ *   listTemplateRules(projectId), resolveTemplates?({ cards, rules, templateIds }) -> Map (tests)
  * }
+ *
+ * Batch exports and exportCard accept templateId 'auto': each card uses the template its
+ * override or the project's template rules pick (saved templates; drafts are not applied).
  */
 function registerCardDesignerIpc(ipcMain, deps) {
   const { userDataPath, getCard, queryCards, dialog, shell, getWindow, render } = deps;
@@ -78,7 +82,32 @@ function registerCardDesignerIpc(ipcMain, deps) {
     return { row, template };
   };
 
-  const loadForCard = (cardId, templateId, draft) => {
+  const isAuto = (templateId) => templateId === 'auto';
+
+  // Map cardId -> templateId (or null) by override, then rules, then the project default.
+  const resolveFor = async (projectId, cards) => {
+    const templateIds = deps.listTemplates(projectId).map((t) => t.id);
+    const rules = deps.listTemplateRules ? deps.listTemplateRules(projectId) : [];
+    const resolver = deps.resolveTemplates || ((args) => render.resolveTemplates(args));
+    return resolver({ cards, rules, templateIds });
+  };
+
+  // Saved templates by id, validated once per export run.
+  const templateCache = () => {
+    const cache = new Map();
+    return (id) => {
+      if (!cache.has(id)) cache.set(id, loadTemplate(id).template);
+      return cache.get(id);
+    };
+  };
+
+  const loadForCard = async (cardId, templateId, draft) => {
+    if (isAuto(templateId)) {
+      const card = loadCard(cardId);
+      const resolved = (await resolveFor(card.project_id, [card])).get(card.id);
+      if (!resolved) throw new Error('this project has no templates');
+      return { card, template: loadTemplate(resolved).template, projectId: card.project_id };
+    }
     const card = loadCard(cardId);
     const { row, template } = loadTemplate(templateId, draft);
     if (row.project_id !== card.project_id) throw new Error('card and template belong to different projects');
@@ -126,7 +155,7 @@ function registerCardDesignerIpc(ipcMain, deps) {
   // ── Single card ──
   // options: { format: png|jpeg|pdf, dpi, draft, outputPath, bleed (png: include bleed area) }
   ipcMain.handle('exportCard', async (_, cardId, templateId, options = {}) => {
-    const job = loadForCard(cardId, templateId, options.draft);
+    const job = await loadForCard(cardId, templateId, options.draft);
     const format = formatOf(options.format);
     const dpi = dpiOf(options.dpi, format === 'pdf' ? 300 : 96);
     let outPath = options.outputPath;
@@ -172,9 +201,21 @@ function registerCardDesignerIpc(ipcMain, deps) {
     }
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const { row, template } = loadTemplate(templateId, options.draft);
-    if (row.project_id !== projectId) throw new Error(`template ${templateId} not found in project ${projectId}`);
     const cards = queryCards(projectId, options.filter || {});
+    let templateFor;
+    if (isAuto(templateId)) {
+      const resolved = await resolveFor(projectId, cards);
+      const byId = templateCache();
+      templateFor = (card) => {
+        const id = resolved.get(card.id);
+        if (!id) throw new Error('no template (the project has none)');
+        return byId(id);
+      };
+    } else {
+      const { row, template } = loadTemplate(templateId, options.draft);
+      if (row.project_id !== projectId) throw new Error(`template ${templateId} not found in project ${projectId}`);
+      templateFor = () => template;
+    }
     const errors = [];
     let exported = 0;
     const started = Date.now();
@@ -184,7 +225,7 @@ function registerCardDesignerIpc(ipcMain, deps) {
       const card = cards[i];
       if (!sender.isDestroyed()) sender.send('exportProgress', { current: i + 1, total: cards.length });
       try {
-        const out = await pngFor({ template, card, projectId }, dpi, { showBleed: Boolean(options.bleed), background: format === 'jpeg' ? '#ffffff' : null });
+        const out = await pngFor({ template: templateFor(card), card, projectId }, dpi, { showBleed: Boolean(options.bleed), background: format === 'jpeg' ? '#ffffff' : null });
         fs.writeFileSync(path.join(outputDir, batchFileName(card, format)), format === 'jpeg' ? out.image.toJPEG(92) : out.png);
         for (const w of out.report.warnings) errors.push(`card ${card.id} "${card.name}": warning: ${w}`);
         exported++;
@@ -213,15 +254,40 @@ function registerCardDesignerIpc(ipcMain, deps) {
 
   // options: { paper, bleedMm, cropMarks, copies, filter, draft, outputPath }
   ipcMain.handle('exportPrintSheets', async (event, projectId, templateId, options = {}) => {
-    const { row, template } = loadTemplate(templateId, options.draft);
-    if (row.project_id !== projectId) throw new Error(`template ${templateId} not found in project ${projectId}`);
-    const layout = sheetLayoutFor(template, options);
-    if (layout.perPage < 1) throw new Error('this card size does not fit on the chosen paper');
     const copies = Math.max(1, Math.min(99, Math.floor(Number(options.copies) || 1)));
     const cards = queryCards(projectId, options.filter || {});
     if (cards.length === 0) throw new Error('no cards match the current filter');
     const total = cards.length * copies;
     if (total > MAX_SHEET_SLOTS) throw new Error(`at most ${MAX_SHEET_SLOTS} cards per print run`);
+
+    // Groups of cards that share a card size; each group gets its own sheet layout.
+    let groups;
+    let template;
+    if (isAuto(templateId)) {
+      const resolved = await resolveFor(projectId, cards);
+      const byId = templateCache();
+      const bySize = new Map();
+      for (const card of cards) {
+        const id = resolved.get(card.id);
+        if (!id) throw new Error('this project has no templates');
+        const t = byId(id);
+        const key = `${t.size.widthMm}x${t.size.heightMm}`;
+        if (!bySize.has(key)) bySize.set(key, { template: t, entries: [] });
+        bySize.get(key).entries.push({ card, template: t });
+      }
+      groups = [...bySize.values()];
+      template = groups[0].template;
+    } else {
+      const loaded = loadTemplate(templateId, options.draft);
+      if (loaded.row.project_id !== projectId) throw new Error(`template ${templateId} not found in project ${projectId}`);
+      template = loaded.template;
+      groups = [{ template, entries: cards.map((card) => ({ card, template })) }];
+    }
+    for (const g of groups) {
+      g.layout = sheetLayoutFor(g.template, options);
+      if (g.layout.perPage < 1) throw new Error(`${g.template.size.widthMm} × ${g.template.size.heightMm} mm cards do not fit on the chosen paper`);
+    }
+    const layout = groups[0].layout;
 
     let outPath = options.outputPath;
     if (!outPath) {
@@ -236,11 +302,21 @@ function registerCardDesignerIpc(ipcMain, deps) {
     const started = Date.now();
     const sender = event.sender;
     if (!sender.isDestroyed()) sender.send('exportProgress', { current: 0, total });
-    const pages = sheets.buildSheetPages(layout, total, (i) => cards[Math.floor(i / copies)], { cropMarks: options.cropMarks !== false });
     // The sheet's bleed choice overrides the template's for this print (0 = rounded trim cards).
-    const printTemplate = { ...template, size: { ...template.size, bleedMm: layout.bleedMm } };
+    const forPrint = (t) => ({ ...t, size: { ...t.size, bleedMm: layout.bleedMm } });
+    const pages = [];
+    for (const g of groups) {
+      const printed = new Map();
+      const printFor = (t) => { if (!printed.has(t)) printed.set(t, forPrint(t)); return printed.get(t); };
+      const groupPages = sheets.buildSheetPages(g.layout, g.entries.length * copies, (i) => g.entries[Math.floor(i / copies)].card, { cropMarks: options.cropMarks !== false });
+      let slot = 0;
+      for (const page of groupPages) {
+        page.items = page.items.map((item) => ({ ...item, template: printFor(g.entries[Math.floor(slot++ / copies)].template) }));
+        pages.push({ ...page, pageWidthMm: g.layout.pageWidthMm, pageHeightMm: g.layout.pageHeightMm });
+      }
+    }
     const { pdf, report } = await render.printPages({
-      projectId, template: printTemplate, showBleed: layout.bleedMm > 0,
+      projectId, template: forPrint(template), showBleed: layout.bleedMm > 0,
       pageWidthMm: layout.pageWidthMm, pageHeightMm: layout.pageHeightMm, pages,
     });
     fs.writeFileSync(outPath, pdf);

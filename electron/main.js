@@ -111,6 +111,7 @@ app.whenReady().then(async () => {
       insertTemplate: database.insertTemplate,
       updateTemplate: database.updateTemplate,
       deleteTemplate: database.deleteTemplate,
+      listTemplateRules: database.listTemplateRules,
       dialog,
       shell,
       getWindow: () => mainWindow,
