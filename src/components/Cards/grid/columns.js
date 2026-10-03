@@ -19,7 +19,7 @@ export function gridColumns(model, cardTypeId) {
     label: f.label,
     kind: f.key === 'name' ? 'text' : f.kind,
     options: f.options || [],
-    width: f.key === 'name' ? 190 : WIDTH[f.kind] || 130,
+    width: f.key === 'name' ? 190 : Math.max(WIDTH[f.kind] || 130, Math.round(f.label.length * 7.5 + 30)), // fit the header
   }))
   if (!cardTypeId) {
     cols.splice(1, 0, { key: 'card_type_id', fieldKey: null, label: 'Card type', kind: 'cardType', options: model.types.map((t) => t.name), width: WIDTH.cardType })

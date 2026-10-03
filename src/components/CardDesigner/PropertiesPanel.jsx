@@ -228,7 +228,7 @@ export default function PropertiesPanel() {
 
       <Section title="Visibility">
         <Field wide label="Show when (visibleIf)">
-          <BindingInput bare testid="visible-if" value={layer.visibleIf} onChange={(v) => set('visibleIf', v || undefined)} fields={fields} card={card} placeholder="e.g. type == 'Unit'" />
+          <BindingInput bare testid="visible-if" value={layer.visibleIf} onChange={(v) => set('visibleIf', v || undefined)} fields={fields} card={card} placeholder='e.g. card_type == "Unit"' />
         </Field>
         <NumberField label="Opacity %" value={Math.round((layer.opacity ?? 1) * 100)} min={0} max={100} onChange={(v) => set('opacity', Math.max(0, Math.min(100, v)) / 100)} />
         {findRef(draft, id)?.parentId && getLayer(draft, findRef(draft, id).parentId)?.type === 'stack' && (

@@ -45,18 +45,21 @@ export default function LayersPanel() {
   const dragId = useRef(null)
   const dropRef = useRef(null) // latest drop target; state alone can lag behind a fast drop
 
+  // Top-most layer first, as in paint order, except inside a stack: there the list follows the
+  // stack's flow, first child at the top, the way it reads on the card.
   const rows = useMemo(() => {
     const out = []
-    const visit = (layers, depth, parentId) => {
-      for (let i = layers.length - 1; i >= 0; i--) {
-        const l = layers[i]
+    const visit = (layers, depth, parentId, flow) => {
+      const order = flow ? layers : [...layers].reverse()
+      for (const l of order) {
         out.push({ layer: l, depth, parentId })
-        if (isContainer(l) && !collapsed.has(l.id)) visit(l.children, depth + 1, l.id)
+        if (isContainer(l) && !collapsed.has(l.id)) visit(l.children, depth + 1, l.id, l.type === 'stack')
       }
     }
-    if (draft) visit(draft.layers, 0, null)
+    if (draft) visit(draft.layers, 0, null, false)
     return out
   }, [draft, collapsed])
+  const inStack = (parentId) => parentId !== null && parentId !== undefined && getLayer(draft, parentId)?.type === 'stack'
 
   if (!draft) return null
   const single = selectedIds.length === 1 ? selectedIds[0] : null
@@ -100,10 +103,12 @@ export default function LayersPanel() {
       if (target.where === 'into') return moveToParent(t, id, target.id, Number.MAX_SAFE_INTEGER) // on top inside
       const ref = findRef(t, target.id)
       if (!ref) return t
-      // The list is top-most first, so "before" in the list means above = later in the array.
+      // The list is top-most first, so "before" in the list means above = later in the array;
+      // inside a stack the list follows the flow, so "before" is earlier in the array.
       const withoutSelf = siblingsOf(t, ref.parentId).filter((l) => l.id !== id)
       const at = withoutSelf.findIndex((l) => l.id === target.id)
-      return moveToParent(t, id, ref.parentId, target.where === 'before' ? at + 1 : at)
+      const flow = getLayer(t, ref.parentId)?.type === 'stack'
+      return moveToParent(t, id, ref.parentId, flow ? (target.where === 'before' ? at : at + 1) : (target.where === 'before' ? at + 1 : at))
     })
   }
 
@@ -205,8 +210,8 @@ export default function LayersPanel() {
       </div>
 
       <div className="flex items-center gap-0.5 px-2 py-1 border-t border-border">
-        <button title="Bring forward" disabled={!single} onClick={() => edit((t) => moveInParent(t, single, 1))} className={iconBtn}><ChevronUp size={14} /></button>
-        <button title="Send backward" disabled={!single} onClick={() => edit((t) => moveInParent(t, single, -1))} className={iconBtn}><ChevronDown size={14} /></button>
+        <button title={inStack(singleRef?.parentId) ? 'Move up in the stack' : 'Bring forward'} disabled={!single} onClick={() => edit((t) => moveInParent(t, single, inStack(singleRef?.parentId) ? -1 : 1))} className={iconBtn}><ChevronUp size={14} /></button>
+        <button title={inStack(singleRef?.parentId) ? 'Move down in the stack' : 'Send backward'} disabled={!single} onClick={() => edit((t) => moveInParent(t, single, inStack(singleRef?.parentId) ? 1 : -1))} className={iconBtn}><ChevronDown size={14} /></button>
         <button title="Move out of its group or stack" disabled={!singleRef || singleRef.parentId === null} onClick={moveOut} className={iconBtn}><FolderOutput size={14} /></button>
         <div className="flex-1" />
         <button

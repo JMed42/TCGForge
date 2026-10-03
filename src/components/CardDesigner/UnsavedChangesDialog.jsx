@@ -24,7 +24,7 @@ export default function UnsavedChangesDialog() {
   }, [unsavedPrompt, resolveUnsaved])
 
   if (!unsavedPrompt) return null
-  const name = draft?.meta?.name || 'this template'
+  const name = draft?.name || 'this template'
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" role="dialog" aria-modal="true" data-testid="unsaved-dialog">
