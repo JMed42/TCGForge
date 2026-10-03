@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { X, FolderOpen, Printer } from 'lucide-react'
 import { useStore } from '../../store'
+import { filteredCardsOf } from '../Cards/grid/columns'
 
 const selectClass = 'w-full px-3 py-1.5 bg-surface-2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent'
 
 // Print-and-play sheets: N cards per Letter/A4 page at physical size, optional 3 mm bleed and
 // crop marks. Uses the Card Database filter, like Export All Cards.
 export default function PrintSheetsDialog({ onClose }) {
-  const { activeProjectId, activeTemplateId, draft, cards, cardFilters } = useStore()
+  const { activeProjectId, activeTemplateId, draft } = useStore()
+  const cards = filteredCardsOf(useStore.getState())
   const [paper, setPaper] = useState('letter')
   const [bleedMm, setBleedMm] = useState(3)
   const [cropMarks, setCropMarks] = useState(true)
@@ -35,7 +37,7 @@ export default function PrintSheetsDialog({ onClose }) {
     setProgress({ current: 0, total: slots })
     try {
       const res = await window.api.exportPrintSheets(activeProjectId, byRules ? 'auto' : activeTemplateId, {
-        paper, bleedMm, cropMarks, copies, filter: cardFilters, ...(byRules ? {} : { draft }),
+        paper, bleedMm, cropMarks, copies, cardIds: cards.map((c) => c.id), ...(byRules ? {} : { draft }),
       })
       setResult(res.canceled ? null : res)
     } catch (err) {

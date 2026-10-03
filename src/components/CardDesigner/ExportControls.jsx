@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Download, Images, FolderOpen, X, ChevronDown, Printer } from 'lucide-react'
 import { useStore } from '../../store'
 import PrintSheetsDialog from './PrintSheetsDialog'
+import { filteredCardsOf } from '../Cards/grid/columns'
 
 const SINGLE_OPTIONS = [
   { label: 'Web preview — PNG 96 dpi', format: 'png', dpi: 96 },
@@ -10,7 +11,7 @@ const SINGLE_OPTIONS = [
 ]
 
 export default function ExportControls() {
-  const { activeProjectId, activeTemplateId, previewCardId, cardFilters, draft } = useStore()
+  const { activeProjectId, activeTemplateId, previewCardId, draft } = useStore()
   const [menuOpen, setMenuOpen] = useState(false)
   const [allMenuOpen, setAllMenuOpen] = useState(false)
   const [status, setStatus] = useState(null)
@@ -44,7 +45,7 @@ export default function ExportControls() {
       const result = await window.api.exportAllCards(activeProjectId, byRules ? 'auto' : activeTemplateId, {
         format: 'png',
         dpi: 300,
-        filter: cardFilters,
+        cardIds: filteredCardsOf(useStore.getState()).map((c) => c.id), // what the Database tab shows
         ...(byRules ? {} : { draft }), // export what the editor shows, saved or not
       })
       if (result?.canceled) { setBatch(null); return }

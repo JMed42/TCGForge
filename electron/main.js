@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, clipboard } = require('electron');
 const path = require('path');
 const database = require('./database');
 const { initDatabase, registerIpcHandlers } = database;
@@ -7,6 +7,7 @@ const { registerImportIpc } = require('./import/ipc');
 const { migrateLegacyData } = require('./legacyData');
 const assets = require('./assets');
 const { registerAssetIndexIpc } = require('./assetIndex');
+const { registerClipboardIpc } = require('./clipboard');
 const { RenderService } = require('./renderWindow');
 
 // tcg-asset:// must be declared privileged before the app is ready.
@@ -121,6 +122,7 @@ app.whenReady().then(async () => {
       getWindow: () => mainWindow,
       render,
     });
+    registerClipboardIpc(ipcMain, { clipboard, userDataPath: app.getPath('userData') });
     registerImportIpc(ipcMain, {
       queryCards: database.queryCards,
       getProject: database.getProject,

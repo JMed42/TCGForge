@@ -42,6 +42,11 @@ contextBridge.exposeInMainWorld('api', {
   reorderCardTypes: (projectId, ids) => ipcRenderer.invoke('reorderCardTypes', projectId, ids),
   bulkUpdateCards: (projectId, changes) => ipcRenderer.invoke('bulkUpdateCards', projectId, changes),
 
+  // Clipboard: text for the grid, images for "Paste" art buttons
+  readClipboard: () => ipcRenderer.invoke('readClipboard'),
+  writeClipboardText: (text) => ipcRenderer.invoke('writeClipboardText', text),
+  pasteImageFromClipboard: (projectId, options) => ipcRenderer.invoke('pasteImageFromClipboard', projectId, options),
+
   // Assets index
   getAssets: (projectId, kind) => ipcRenderer.invoke('getAssets', projectId, kind),
   getMissingArt: (projectId) => ipcRenderer.invoke('getMissingArt', projectId),

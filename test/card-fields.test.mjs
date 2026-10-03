@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert'
 import {
-  getFieldValue, withField, applyLive, customFieldNames, columnsFor, customKey,
+  getFieldValue, withField, applyLive, customKey,
   createCellHistory, recordCellEdit, undoCell, redoCell, getFieldRaw, sameValue, cellKey,
 } from '../src/components/Cards/grid/cardFields.js'
 
@@ -30,13 +30,6 @@ test('applyLive only touches the card being edited', () => {
   assert.equal(applyLive(card, live).rules_text, 'Flying.')
   assert.equal(applyLive({ ...card, id: 2 }, live).rules_text, undefined)
   assert.equal(applyLive(card, { cardId: 1, key: 'name', value: '' }).name, '', 'a half-typed empty name still previews')
-})
-
-test('custom columns come from the card schema, then from cards; built-ins are skipped', () => {
-  const schema = { fields: [{ name: 'name' }, { name: 'element' }, { name: 'health' }, { name: 'cost' }] }
-  const names = customFieldNames([card, { custom_fields: { artist: 'x', element: 'y' } }], schema)
-  assert.deepEqual(names, ['element', 'health', 'artist'])
-  assert.deepEqual(columnsFor(['artist']).slice(-1)[0], { key: 'custom:artist', label: 'artist', width: 130, custom: true })
 })
 
 test('cell history: single edits and multi-cell steps undo and redo as units', () => {

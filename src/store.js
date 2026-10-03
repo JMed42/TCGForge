@@ -20,15 +20,8 @@ export const useStore = create((set, get) => ({
   // Cards
   cards: [],
   selectedCardIds: [],
-  cardFilters: {
-    search: '',
-    type: '',
-    set: '',
-    rarity: '',
-    tags: [],
-    sortBy: 'name',
-    sortDir: 'ASC',
-  },
+  // Applied in the renderer (src/components/Cards/grid/gridOps.js filterCards).
+  cardFilters: { search: '', cardTypeId: '', fieldKey: '', fieldOp: 'contains', fieldValue: '' },
 
   // Documents
   documents: [],
@@ -99,7 +92,7 @@ export const useStore = create((set, get) => ({
         set({ cards: [] })
         return
       }
-      const cards = await window.api?.getCards?.(activeProjectId, cardFilters)
+      const cards = await window.api?.getCards?.(activeProjectId, {})
       set({ cards: (cards || []).map(toUiCard) })
       get().loadMissingArt()
     } catch (error) {
@@ -108,10 +101,8 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  setCardFilters: async (filters) => {
-    const { cardFilters } = get()
-    set({ cardFilters: { ...cardFilters, ...filters } })
-    await get().loadCards()
+  setCardFilters: (filters) => {
+    set((s) => ({ cardFilters: { ...s.cardFilters, ...filters } }))
   },
 
 

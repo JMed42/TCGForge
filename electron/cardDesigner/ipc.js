@@ -84,6 +84,14 @@ function registerCardDesignerIpc(ipcMain, deps) {
 
   const isAuto = (templateId) => templateId === 'auto';
 
+  // The cards an export covers: an explicit list (what the Database tab shows, in its order),
+  // or a filter for older callers.
+  const cardsFor = (projectId, options) => {
+    if (!Array.isArray(options.cardIds)) return queryCards(projectId, options.filter || {});
+    const byId = new Map(queryCards(projectId, {}).map((c) => [c.id, c]));
+    return options.cardIds.map((id) => byId.get(Number(id))).filter(Boolean);
+  };
+
   // Map cardId -> templateId (or null) by override, then rules, then the project default.
   const resolveFor = async (projectId, cards) => {
     const templateIds = deps.listTemplates(projectId).map((t) => t.id);
@@ -201,7 +209,7 @@ function registerCardDesignerIpc(ipcMain, deps) {
     }
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const cards = queryCards(projectId, options.filter || {});
+    const cards = cardsFor(projectId, options);
     let templateFor;
     if (isAuto(templateId)) {
       const resolved = await resolveFor(projectId, cards);
@@ -255,7 +263,7 @@ function registerCardDesignerIpc(ipcMain, deps) {
   // options: { paper, bleedMm, cropMarks, copies, filter, draft, outputPath }
   ipcMain.handle('exportPrintSheets', async (event, projectId, templateId, options = {}) => {
     const copies = Math.max(1, Math.min(99, Math.floor(Number(options.copies) || 1)));
-    const cards = queryCards(projectId, options.filter || {});
+    const cards = cardsFor(projectId, options);
     if (cards.length === 0) throw new Error('no cards match the current filter');
     const total = cards.length * copies;
     if (total > MAX_SHEET_SLOTS) throw new Error(`at most ${MAX_SHEET_SLOTS} cards per print run`);

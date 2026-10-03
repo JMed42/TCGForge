@@ -1,50 +1,12 @@
-// Cell-level access to card fields for the Cards grid. Built-in columns are card columns; custom
-// fields are addressed as "custom:<name>" and live in card.custom_fields (an object in the UI).
-// Every cell edits as text; tags edit as "a, b".
+// Cell-level access to card fields for the Database grid and the card form. Standard fields are
+// card columns; other fields are addressed as "custom:<key>" and live in card.custom_fields (an
+// object in the UI). Cells edit as text, tags as "a, b", Yes/No as booleans.
 
-export const BUILTIN_COLUMNS = [
-  { key: 'name', label: 'Name', width: 190 },
-  { key: 'type', label: 'Type', width: 120 },
-  { key: 'set_name', label: 'Set', width: 110 },
-  { key: 'rarity', label: 'Rarity', width: 100 },
-  { key: 'cost', label: 'Cost', width: 64 },
-  { key: 'power', label: 'Power', width: 64 },
-  { key: 'toughness', label: 'Tough.', width: 64 },
-  { key: 'rules_text', label: 'Rules text', width: 300, multiline: true },
-  { key: 'flavor_text', label: 'Flavor text', width: 220, multiline: true },
-  { key: 'tags', label: 'Tags', width: 150 },
-  { key: 'notes', label: 'Notes', width: 180, multiline: true },
-]
-
-export const DEFAULT_VISIBLE = ['name', 'type', 'set_name', 'rarity', 'cost', 'power', 'toughness', 'rules_text', 'tags']
-
-const BUILTIN_KEYS = new Set(BUILTIN_COLUMNS.map((c) => c.key))
 const CUSTOM = 'custom:'
 
 export const isCustomKey = (key) => key.startsWith(CUSTOM)
 export const customKey = (name) => `${CUSTOM}${name}`
 export const customName = (key) => key.slice(CUSTOM.length)
-
-// Custom field names: the project's card schema first (in its order), then keys found on cards.
-// Schema fields that are really built-in columns (name, cost, rarity, ...) are skipped.
-export function customFieldNames(cards, cardSchema) {
-  const names = []
-  const add = (n) => {
-    const name = String(n || '').trim()
-    if (name && !BUILTIN_KEYS.has(name) && name !== 'set' && !names.includes(name)) names.push(name)
-  }
-  const schemaFields = Array.isArray(cardSchema?.fields) ? cardSchema.fields : Array.isArray(cardSchema) ? cardSchema : []
-  for (const f of schemaFields) add(f && f.name)
-  for (const c of cards) for (const k of Object.keys(c.custom_fields || {})) add(k)
-  return names
-}
-
-export function columnsFor(customNames) {
-  return [
-    ...BUILTIN_COLUMNS,
-    ...customNames.map((n) => ({ key: customKey(n), label: n, width: 130, custom: true })),
-  ]
-}
 
 function text(v) {
   if (v === null || v === undefined) return ''

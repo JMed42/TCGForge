@@ -57,11 +57,28 @@ async function decode(data) {
   };
 }
 
+// Card art goes to assets/art; template images (frames, icons) to assets/images.
+const FOLDERS = ['art', 'images'];
+
+// Write image bytes into assets/{folder}/{name}-{hash}.{ext}, deduplicated by content hash.
+function storeImage(userDataPath, projectId, data, { folder = 'art', name = 'art', ext = 'png' } = {}) {
+  if (!FOLDERS.includes(folder)) throw new Error(`unknown asset folder "${folder}"`);
+  const hash = crypto.createHash('sha256').update(data).digest('hex').slice(0, 8);
+  const base = templates.slugify(String(name || '')).slice(0, 48) || (folder === 'art' ? 'art' : 'image');
+  const rel = `assets/${folder}/${base}-${hash}.${ext === 'jpeg' ? 'jpg' : ext}`;
+  const dest = path.join(templates.projectDir(userDataPath, projectId), ...rel.split('/'));
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, data);
+  }
+  return rel;
+}
+
 /**
- * Copy an image into the project's art folder (deduplicated by content hash).
+ * Copy an image file into the project (deduplicated by content hash).
  * @returns {Promise<string>} project-relative path, e.g. "assets/art/hero-1a2b3c4d.png"
  */
-async function importCardArt(userDataPath, projectId, sourcePath) {
+async function importCardArt(userDataPath, projectId, sourcePath, { folder = 'art' } = {}) {
   const ext = extOf(sourcePath);
   if (!ART_EXTENSIONS.includes(ext)) throw new Error(`unsupported image type ".${ext}" (use ${ART_EXTENSIONS.join(', ')})`);
   const stat = fs.statSync(sourcePath);
@@ -69,16 +86,15 @@ async function importCardArt(userDataPath, projectId, sourcePath) {
   if (stat.size > MAX_ART_BYTES) throw new Error('image is larger than 50 MB');
   const data = fs.readFileSync(sourcePath);
   await decode(data); // throws if it isn't a decodable image
+  return storeImage(userDataPath, projectId, data, { folder, name: path.basename(sourcePath, path.extname(sourcePath)), ext });
+}
 
-  const hash = crypto.createHash('sha256').update(data).digest('hex').slice(0, 8);
-  const base = templates.slugify(path.basename(sourcePath, path.extname(sourcePath))).slice(0, 48) || 'art';
-  const rel = `assets/art/${base}-${hash}.${ext === 'jpeg' ? 'jpg' : ext}`;
-  const dest = path.join(templates.projectDir(userDataPath, projectId), ...rel.split('/'));
-  if (!fs.existsSync(dest)) {
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.writeFileSync(dest, data);
-  }
-  return rel;
+/** PNG bytes (e.g. from the clipboard) into the project. */
+async function importImageData(userDataPath, projectId, png, { folder = 'art', name } = {}) {
+  if (!Buffer.isBuffer(png) || !png.length) throw new Error('no image data');
+  if (png.length > MAX_ART_BYTES) throw new Error('image is larger than 50 MB');
+  await decode(png);
+  return storeImage(userDataPath, projectId, png, { folder, name: name || 'pasted', ext: 'png' });
 }
 
 // Small PNG data URL for the card editor. Only image files inside the project are read.
@@ -91,4 +107,4 @@ async function thumbnail(userDataPath, projectId, imagePath, maxSize = 160) {
   return { dataUrl: png ? `data:image/png;base64,${png.toString('base64')}` : null, width: info.width, height: info.height };
 }
 
-module.exports = { importCardArt, thumbnail, ART_EXTENSIONS };
+module.exports = { importCardArt, importImageData, thumbnail, ART_EXTENSIONS, FOLDERS };
