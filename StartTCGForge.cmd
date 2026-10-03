@@ -4,7 +4,7 @@ setlocal
 title TCGForge
 cd /d "%~dp0"
 
-where npm >/dev/null 2>nul
+where npm >nul 2>nul
 if errorlevel 1 (
   echo Node.js is not installed or not on PATH. Install it from https://nodejs.org and try again.
   goto :failed
