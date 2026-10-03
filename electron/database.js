@@ -5,9 +5,12 @@ const { runMigrations } = require('./migrations');
 const cardModelLib = require('./cardModel');
 const { createCardModel, registerCardModelIpc } = cardModelLib;
 const { createFitCache, registerFitCacheIpc } = require('./fitCache');
+const { createLibrary, registerLibraryIpc } = require('./library');
+const { resolveProjectAsset } = require('./assets');
 
 let db;
 let dbPath;
+let userDataDir = null;
 
 // Helper: run a query and return all rows as objects
 function queryAll(sql, params = []) {
@@ -61,6 +64,7 @@ async function initDatabase(userDataPath) {
   });
 
   dbPath = path.join(userDataPath, DB_FILE);
+  userDataDir = userDataPath;
 
   if (fs.existsSync(dbPath)) {
     const fileBuffer = fs.readFileSync(dbPath);
@@ -150,6 +154,11 @@ function normalizeCardData(data) {
   if (out.template_override_id !== undefined) {
     const n = Number(out.template_override_id);
     out.template_override_id = out.template_override_id === null || out.template_override_id === '' || !Number.isInteger(n) || n <= 0 ? null : n;
+  }
+  // Reminder text for this card: null = the set's / project's choice, 1 = show, 0 = hide.
+  if (out.reminders !== undefined) {
+    const r = out.reminders;
+    out.reminders = r === null || r === '' ? null : (r === true || r === 1 || r === '1' || r === 'show') ? 1 : 0;
   }
   return out;
 }
@@ -330,10 +339,15 @@ function applyAssetChanges(projectId, rows, removed = []) {
 // ── CARDS: shared write helpers ───────────────────────────
 
 const CARD_COLUMNS = ['name', 'type', 'set_name', 'rarity', 'cost', 'power', 'toughness',
-  'rules_text', 'flavor_text', 'tags', 'custom_fields', 'notes', 'image_path', 'template_override_id', 'card_type_id'];
+  'rules_text', 'flavor_text', 'tags', 'custom_fields', 'notes', 'image_path', 'template_override_id', 'card_type_id', 'reminders'];
 
 const cardModel = createCardModel({ queryAll, queryOne, exec, inTransaction });
 const fitCache = createFitCache({ queryAll, exec, inTransaction });
+const library = createLibrary({
+  queryAll, queryOne, exec, inTransaction,
+  cardPatchSql: (projectId, patch) => cardUpdateSql(projectId, normalizeCardData(patch)),
+  fileExists: (projectId, rel) => Boolean(userDataDir && resolveProjectAsset(userDataDir, projectId, rel)),
+});
 
 // SET clause for a (normalised) partial card of projectId, validating references.
 function cardUpdateSql(projectId, data) {
@@ -366,12 +380,12 @@ function createCardRow(projectId, input, { inTransaction: inTx = false, defaults
   if (!String(data.name || '').trim()) throw new Error('a card needs a name');
   db.run(
     `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
-      rules_text, flavor_text, tags, custom_fields, notes, image_path, card_type_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      rules_text, flavor_text, tags, custom_fields, notes, image_path, card_type_id, reminders)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [projectId, data.name, data.type || '', data.set_name || '', data.rarity || '',
      data.cost || '', data.power || '', data.toughness || '', data.rules_text || '',
      data.flavor_text || '', data.tags || '', data.custom_fields || '{}',
-     data.notes || '', data.image_path || '', typeId]
+     data.notes || '', data.image_path || '', typeId, data.reminders ?? null]
   );
   const id = queryOne('SELECT last_insert_rowid() AS id').id;
   if (!inTx) saveDatabase();
@@ -439,6 +453,9 @@ function registerIpcHandlers(ipcMain) {
     for (const d of docs) run('DELETE FROM documents WHERE id = ?', [d.id]);
     inTransaction(() => {
       db.run('DELETE FROM fit_cache WHERE project_id = ?', [id]);
+      db.run('DELETE FROM symbols WHERE project_id = ?', [id]);
+      db.run('DELETE FROM keywords WHERE project_id = ?', [id]);
+      db.run('DELETE FROM variables WHERE project_id = ?', [id]);
       db.run('DELETE FROM template_rules WHERE project_id = ?', [id]);
       db.run('DELETE FROM assets WHERE project_id = ?', [id]);
       db.run('DELETE FROM card_types WHERE project_id = ?', [id]);
@@ -486,6 +503,9 @@ function registerIpcHandlers(ipcMain) {
   // ── FIT CACHE ─────────────────────────────────────────────
   registerFitCacheIpc(ipcMain, fitCache);
 
+  // ── LIBRARY (symbols, keywords, variables) ────────────────
+  registerLibraryIpc(ipcMain, library);
+
   // sql.js runs without foreign_keys: a card's fit results go with it.
   ipcMain.handle('deleteCard', (_, id) => {
     inTransaction(() => {
@@ -508,11 +528,11 @@ function registerIpcHandlers(ipcMain) {
     if (!card) return null;
     const newId = run(
       `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
-        rules_text, flavor_text, tags, custom_fields, notes, image_path, card_type_id, template_override_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        rules_text, flavor_text, tags, custom_fields, notes, image_path, card_type_id, template_override_id, reminders)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [card.project_id, card.name + ' (Copy)', card.type, card.set_name, card.rarity,
        card.cost, card.power, card.toughness, card.rules_text, card.flavor_text,
-       card.tags, card.custom_fields, card.notes, card.image_path, card.card_type_id, card.template_override_id]
+       card.tags, card.custom_fields, card.notes, card.image_path, card.card_type_id, card.template_override_id, card.reminders ?? null]
     );
     return getCard(newId);
   });
@@ -559,6 +579,7 @@ function registerIpcHandlers(ipcMain) {
     const deleteRecursive = (docId) => {
       const children = queryAll('SELECT id FROM documents WHERE parent_id = ?', [docId]);
       for (const child of children) deleteRecursive(child.id);
+      db.run('UPDATE keywords SET rule_ref = NULL WHERE rule_ref = ?', [docId]); // keyword links to it
       run('DELETE FROM documents WHERE id = ?', [docId]);
     };
     deleteRecursive(id);
@@ -588,15 +609,22 @@ function registerIpcHandlers(ipcMain) {
       fields: fields.map(({ key, label, kind, options, default_value, help }) => ({ key, label, kind, options, default_value, help })),
       types: types.map(({ id, name, color, sort_order, field_keys }) => ({ id, name, color, sort_order, field_keys })),
     };
-    return JSON.stringify({ project, cardModel: cardModelOut, cards, documents }, null, 2);
+    // The library travels too (symbol images are files: their paths only, like card art).
+    const lib = library.getLibrary(projectId);
+    const libraryOut = {
+      symbols: lib.symbols.map(({ shortcode, rel_path, scale, baseline_offset }) => ({ shortcode, rel_path, scale, baseline_offset })),
+      keywords: lib.keywords.map(({ name, params, reminder_template, rule_ref }) => ({ name, params, reminder_template, rule_ref })),
+      variables: lib.variables.map(({ key, value, description }) => ({ key, value, description })),
+    };
+    return JSON.stringify({ project, cardModel: cardModelOut, library: libraryOut, cards, documents }, null, 2);
   });
 
   ipcMain.handle('importProject', (_, jsonData) => {
     const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
 
     const newProjectId = run(
-      'INSERT INTO projects (name, description, card_schema) VALUES (?, ?, ?)',
-      [data.project.name + ' (Imported)', data.project.description || '', data.project.card_schema || '[]']
+      'INSERT INTO projects (name, description, card_schema, settings) VALUES (?, ?, ?, ?)',
+      [data.project.name + ' (Imported)', data.project.description || '', data.project.card_schema || '[]', data.project.settings || '{}']
     );
 
     const idMap = {};
@@ -636,6 +664,12 @@ function registerIpcHandlers(ipcMain) {
       }
     });
 
+    // Library: invalid or duplicate rows are skipped; keyword rule links follow the documents.
+    const lib = data.library || {};
+    for (const s of lib.symbols || []) { try { library.saveSymbol(newProjectId, { ...s, id: undefined }); } catch { /* file not here, or a bad row */ } }
+    for (const k of lib.keywords || []) { try { library.saveKeyword(newProjectId, { ...k, id: undefined, rule_ref: idMap[k.rule_ref] || null }); } catch { /* skip */ } }
+    for (const v of lib.variables || []) { try { library.saveVariable(newProjectId, { ...v, id: undefined }); } catch { /* skip */ } }
+
     return queryOne('SELECT * FROM projects WHERE id = ?', [newProjectId]);
   });
 
@@ -655,7 +689,7 @@ function registerIpcHandlers(ipcMain) {
 
 module.exports = {
   initDatabase, registerIpcHandlers, queryCards, getCard, getProject, queryAll, queryOne, exec, bulkUpdateCards, createCardRow,
-  getCardModelApi: () => cardModel, getFitCacheApi: () => fitCache, tagList, normalizeCardData,
+  getCardModelApi: () => cardModel, getFitCacheApi: () => fitCache, getLibraryApi: () => library, tagList, normalizeCardData,
   listTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
   listTemplateRules, saveTemplateRules, listAssets, applyAssetChanges, inTransaction, importCards,
 };

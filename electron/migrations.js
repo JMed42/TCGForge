@@ -199,6 +199,50 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 7,
+    name: 'library: symbols, keywords, variables',
+    // Spec data model (Phase 4): symbols ({fire} -> an image, by path), keywords (rule_ref: a
+    // Game Docs rule entry), variables; projects.settings (reminder text on/off, per set) and
+    // cards.reminders (per card: null = default, 1 = show, 0 = hide). Nothing existing changes.
+    up(db) {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS symbols (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id       INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          shortcode        TEXT NOT NULL,
+          rel_path         TEXT NOT NULL,
+          scale            REAL NOT NULL DEFAULT 1,
+          baseline_offset  REAL NOT NULL DEFAULT -0.12,
+          created_at       TEXT DEFAULT (datetime('now')),
+          UNIQUE (project_id, shortcode)
+        );
+        CREATE TABLE IF NOT EXISTS keywords (
+          id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id         INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          name               TEXT NOT NULL,
+          params_json        TEXT NOT NULL DEFAULT '[]',
+          reminder_template  TEXT NOT NULL DEFAULT '',
+          rule_ref           INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+          created_at         TEXT DEFAULT (datetime('now')),
+          updated_at         TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_keywords_project ON keywords(project_id);
+        CREATE TABLE IF NOT EXISTS variables (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          key          TEXT NOT NULL,
+          value        TEXT NOT NULL DEFAULT '',
+          description  TEXT NOT NULL DEFAULT '',
+          created_at   TEXT DEFAULT (datetime('now')),
+          updated_at   TEXT DEFAULT (datetime('now')),
+          UNIQUE (project_id, key)
+        );
+      `);
+      db.run("ALTER TABLE projects ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'");
+      db.run('ALTER TABLE cards ADD COLUMN reminders INTEGER');
+    },
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

@@ -11,8 +11,22 @@ const path = require('path');
 const templates = require('./templates');
 const { resolveProjectAsset } = require('../assets');
 
-const ART_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif'];
+const { svgSize } = require('../imageSize');
+
+const ART_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'svg'];
 const MAX_ART_BYTES = 50 * 1024 * 1024;
+const MAX_SVG_BYTES = 2 * 1024 * 1024;
+
+// SVG (crisp symbols at any size): accepted when it is an SVG document with a size. It is only
+// ever shown through <img>, where scripts inside an SVG don't run.
+function checkSvg(data) {
+  if (data.length > MAX_SVG_BYTES) throw new Error('an SVG is at most 2 MB');
+  const text = data.toString('utf8');
+  if (!/<svg\b/i.test(text.slice(0, 8192)) || !/<\/svg>\s*$/i.test(text.trimEnd() + '\n')) throw new Error('not an SVG image');
+  const size = svgSize(data);
+  if (!size) throw new Error('the SVG has no viewBox or width and height');
+  return size;
+}
 
 function extOf(file) {
   return path.extname(file).slice(1).toLowerCase();
@@ -57,8 +71,8 @@ async function decode(data) {
   };
 }
 
-// Card art goes to assets/art; template images (frames, icons) to assets/images.
-const FOLDERS = ['art', 'images'];
+// Card art goes to assets/art; template images (frames) to assets/images; symbols to assets/icons.
+const FOLDERS = ['art', 'images', 'icons'];
 
 // Write image bytes into assets/{folder}/{name}-{hash}.{ext}, deduplicated by content hash.
 function storeImage(userDataPath, projectId, data, { folder = 'art', name = 'art', ext = 'png' } = {}) {
@@ -85,7 +99,8 @@ async function importCardArt(userDataPath, projectId, sourcePath, { folder = 'ar
   if (!stat.isFile()) throw new Error('not a file');
   if (stat.size > MAX_ART_BYTES) throw new Error('image is larger than 50 MB');
   const data = fs.readFileSync(sourcePath);
-  await decode(data); // throws if it isn't a decodable image
+  if (ext === 'svg') checkSvg(data);
+  else await decode(data); // throws if it isn't a decodable image
   return storeImage(userDataPath, projectId, data, { folder, name: path.basename(sourcePath, path.extname(sourcePath)), ext });
 }
 
@@ -102,6 +117,11 @@ async function thumbnail(userDataPath, projectId, imagePath, maxSize = 160) {
   if (!imagePath || !ART_EXTENSIONS.includes(extOf(imagePath))) return null;
   const abs = resolveProjectAsset(userDataPath, projectId, imagePath);
   if (!abs) return null;
+  if (extOf(imagePath) === 'svg') {
+    const data = fs.readFileSync(abs);
+    const size = checkSvg(data);
+    return { dataUrl: `data:image/svg+xml;base64,${data.toString('base64')}`, width: size.width, height: size.height };
+  }
   const info = await decode(fs.readFileSync(abs));
   const png = info.thumbnailPng ? info.thumbnailPng(maxSize) : null;
   return { dataUrl: png ? `data:image/png;base64,${png.toString('base64')}` : null, width: info.width, height: info.height };

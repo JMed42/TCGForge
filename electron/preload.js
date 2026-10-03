@@ -51,6 +51,15 @@ contextBridge.exposeInMainWorld('api', {
   getAssets: (projectId, kind) => ipcRenderer.invoke('getAssets', projectId, kind),
   getMissingArt: (projectId) => ipcRenderer.invoke('getMissingArt', projectId),
 
+  // Library: symbols, keywords, variables, reminder-text settings
+  getLibrary: (projectId) => ipcRenderer.invoke('getLibrary', projectId),
+  saveSymbol: (projectId, symbol) => ipcRenderer.invoke('saveSymbol', projectId, symbol),
+  saveKeyword: (projectId, keyword) => ipcRenderer.invoke('saveKeyword', projectId, keyword),
+  saveVariable: (projectId, variable) => ipcRenderer.invoke('saveVariable', projectId, variable),
+  deleteLibraryItem: (projectId, kind, id) => ipcRenderer.invoke('deleteLibraryItem', projectId, kind, id),
+  saveLibrarySettings: (projectId, settings) => ipcRenderer.invoke('saveLibrarySettings', projectId, settings),
+  renameLibraryItem: (projectId, request) => ipcRenderer.invoke('renameLibraryItem', projectId, request),
+
   // Fit cache (results of the background fit check)
   getFitCache: (projectId) => ipcRenderer.invoke('getFitCache', projectId),
   saveFitResults: (projectId, rows) => ipcRenderer.invoke('saveFitResults', projectId, rows),

@@ -24,7 +24,7 @@ const fits = (status, pt) => ({ rules: { status, pt, lineHeight: 1.2, basePt: 9,
 
 test('migration v6 adds the fit_cache table', async () => {
   const { dir } = await setup();
-  assert.equal(LATEST_VERSION, 6);
+  assert.ok(LATEST_VERSION >= 6);
   const SQL = await require('sql.js')();
   const db = new SQL.Database(fs.readFileSync(path.join(dir, 'tcgforge.db')));
   const cols = db.exec('PRAGMA table_info(fit_cache)')[0].values.map((r) => r[1]);
