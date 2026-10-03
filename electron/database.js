@@ -244,26 +244,34 @@ function inTransaction(fn) {
 // Planned rows from electron/import/cardImport.js buildPlan, written in one transaction.
 // Rows may carry card_type_id; creates without one get the project's first type.
 
-function importCards(projectId, planRows) {
+function importCards(projectId, plan) {
+  // plan: { rows, newTypes, newFields, typeFieldAdds } from buildPlan, or a plain list of rows.
+  const p = Array.isArray(plan) ? { rows: plan } : plan;
   let created = 0;
   let updated = 0;
   cardModel.ensureTypes(projectId);
   inTransaction(() => {
-    for (const row of planRows) {
+    const typeIds = cardModel.applyImportModel(projectId, p);
+    for (const row of p.rows) {
+      const data = { ...row.data };
+      if (data.card_type_name) {
+        data.card_type_id = typeIds.get(String(data.card_type_name).toLowerCase());
+        delete data.card_type_name;
+      }
       if (row.action === 'create') {
-        createCardRow(projectId, row.data, { inTransaction: true });
+        createCardRow(projectId, data, { inTransaction: true });
         created++;
       } else if (row.action === 'update') {
         const card = queryOne('SELECT project_id FROM cards WHERE id = ?', [row.cardId]);
         if (!card || card.project_id !== projectId) throw new Error(`card ${row.cardId} is not in this project`);
-        const set = cardUpdateSql(projectId, normalizeCardData(row.data));
+        const set = cardUpdateSql(projectId, normalizeCardData(data));
         if (!set) continue;
         db.run(`UPDATE cards SET ${set.sql} WHERE id = ?`, [...set.values, row.cardId]);
         updated++;
       }
     }
   });
-  return { created, updated };
+  return { created, updated, newTypes: (p.newTypes || []).length, newFields: (p.newFields || []).length };
 }
 
 // ── TEMPLATE RULES ────────────────────────────────────────

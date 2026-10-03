@@ -330,8 +330,34 @@ function createCardModel(db) {
     return { columns, custom };
   }
 
+  /**
+   * Model changes an import brings (electron/import/cardImport.js buildPlan): new types, new
+   * fields, fields added to types. Must run inside the caller's transaction (uses exec only).
+   * @returns Map(lower-case type name -> id) for the new types
+   */
+  function applyImportModel(projectId, { newTypes = [], newFields = [], typeFieldAdds = [] }) {
+    const typeIds = new Map();
+    newTypes.forEach((name, i) => {
+      const existing = queryOne('SELECT id FROM card_types WHERE project_id = ? AND lower(name) = lower(?)', [projectId, name]);
+      if (existing) { typeIds.set(name.toLowerCase(), existing.id); return; }
+      exec('INSERT INTO card_types (project_id, name, color, sort_order, field_keys) VALUES (?, ?, ?, ?, ?)',
+        [projectId, String(name).slice(0, 60), DEFAULT_COLORS[(listTypes(projectId).length + i) % DEFAULT_COLORS.length], nextSortOrder(projectId), '[]']);
+      typeIds.set(name.toLowerCase(), queryOne('SELECT last_insert_rowid() AS id').id);
+    });
+    for (const f of newFields) insertField(projectId, cleanField(f, null));
+    for (const add of typeFieldAdds) {
+      const id = add.typeId || typeIds.get(String(add.typeName || '').toLowerCase());
+      const type = id ? queryOne('SELECT * FROM card_types WHERE id = ? AND project_id = ?', [id, projectId]) : null;
+      if (!type) continue;
+      const keys = typeKeys(type);
+      const next = [...keys, ...add.keys.filter((k) => !keys.includes(k))];
+      if (next.length !== keys.length) exec("UPDATE card_types SET field_keys = ?, updated_at = datetime('now') WHERE id = ?", [JSON.stringify(next), type.id]);
+    }
+    return typeIds;
+  }
+
   return {
-    getModel, listFields, listTypes, applyStarter, ensureTypes, saveField, renameField, deleteField,
+    getModel, listFields, listTypes, applyStarter, applyImportModel, ensureTypes, saveField, renameField, deleteField,
     fieldValueCount, saveType, deleteType, reorderTypes, defaultsFor,
   };
 }

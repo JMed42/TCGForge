@@ -1,8 +1,9 @@
 // IPC for the CSV/XLSX card import:
 //   readSpreadsheet(projectId, { inputPath?, token?, sheet?, headerRow? })
-//     -> { token, fileName, kind, sheets, sheet, headers, sampleRows, rowCount, suggestedMapping, customFields }
-//   previewImport(token, mapping, options) -> { counts, rows (first 200), totalRows }
-//   commitImport(token, mapping, options)  -> { created, updated, skipped, empty }
+//     -> { token, fileName, kind, sheets, sheet, headers, sampleRows, rowCount, suggestedMapping }
+//   previewImport(token, mapping, options) -> { counts, rows (first 200), totalRows, newTypes, newFields, typeFieldAdds }
+//   commitImport(token, mapping, options)  -> { created, updated, skipped, empty, newTypes, newFields }
+// Columns map onto the project's card model (fields, card type); see cardImport.js.
 // The file is read once and held under a token until it is imported (or another file is read).
 
 const fs = require('fs');
@@ -14,18 +15,6 @@ const cardImport = require('./cardImport');
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const PREVIEW_ROWS = 200;
 const SAMPLE_ROWS = 8;
-
-function customFieldsOf(cards, cardSchema) {
-  const names = new Set();
-  let schema = cardSchema;
-  try { if (typeof schema === 'string') schema = JSON.parse(schema); } catch { schema = null; }
-  const fields = Array.isArray(schema?.fields) ? schema.fields : Array.isArray(schema) ? schema : [];
-  for (const f of fields) if (f && f.name && !cardImport.BUILTIN_FIELDS.includes(f.name) && /^[A-Za-z_][A-Za-z0-9_]*$/.test(f.name)) names.add(f.name);
-  for (const c of cards) {
-    try { for (const k of Object.keys(JSON.parse(c.custom_fields || '{}'))) names.add(k); } catch { /* ignore */ }
-  }
-  return [...names];
-}
 
 function loadFile(filePath) {
   const stat = fs.statSync(filePath);
@@ -43,7 +32,7 @@ function loadFile(filePath) {
 }
 
 /**
- * deps: { queryCards(projectId), getProject(projectId), importCards(projectId, planRows), dialog, getWindow }
+ * deps: { queryCards(projectId), getCardModel(projectId), importCards(projectId, plan), dialog, getWindow }
  */
 function registerImportIpc(ipcMain, deps) {
   let seq = 0;
@@ -56,12 +45,10 @@ function registerImportIpc(ipcMain, deps) {
 
   const describe = (token, p) => {
     const table = tableOf(p);
-    const cards = deps.queryCards(p.projectId, {});
-    const customFields = customFieldsOf(cards, deps.getProject(p.projectId)?.card_schema);
     return {
       token, fileName: p.fileName, kind: p.file.kind, sheets: p.file.sheets, sheet: p.sheet, headerRow: p.headerRow,
       headers: table.headers, sampleRows: table.rows.slice(0, SAMPLE_ROWS), rowCount: table.rows.length,
-      suggestedMapping: cardImport.suggestMapping(table.headers, customFields), customFields,
+      suggestedMapping: cardImport.suggestMapping(table, deps.getCardModel(p.projectId)),
     };
   };
 
@@ -100,24 +87,27 @@ function registerImportIpc(ipcMain, deps) {
     return describe(token, p);
   });
 
-  const plan = (p, mapping, options) => cardImport.buildPlan(tableOf(p), mapping, deps.queryCards(p.projectId, {}), {
+  const plan = (p, mapping, options) => cardImport.buildPlan(tableOf(p), mapping, deps.queryCards(p.projectId, {}), deps.getCardModel(p.projectId), {
     matchBy: options.matchBy === 'none' ? 'none' : 'name',
     blankClears: Boolean(options.blankClears),
+    typeId: options.typeId,
+    createTypes: options.createTypes !== false,
+    addFieldsToTypes: options.addFieldsToTypes !== false,
   });
 
   ipcMain.handle('previewImport', (_, token, mapping, options = {}) => {
     const p = get(token);
-    const { rows, counts } = plan(p, mapping, options);
-    return { counts, rows: rows.slice(0, PREVIEW_ROWS), totalRows: rows.length };
+    const { rows, counts, newTypes, newFields, typeFieldAdds } = plan(p, mapping, options);
+    return { counts, rows: rows.slice(0, PREVIEW_ROWS), totalRows: rows.length, newTypes, newFields, typeFieldAdds };
   });
 
   ipcMain.handle('commitImport', (_, token, mapping, options = {}) => {
     const p = get(token);
-    const { rows, counts } = plan(p, mapping, options);
-    const res = deps.importCards(p.projectId, rows.filter((r) => r.action !== 'skip'));
+    const planned = plan(p, mapping, options);
+    const res = deps.importCards(p.projectId, { ...planned, rows: planned.rows.filter((r) => r.action !== 'skip') });
     pending.delete(token);
-    return { ...res, skipped: counts.skip, empty: counts.empty };
+    return { ...res, skipped: planned.counts.skip, empty: planned.counts.empty };
   });
 }
 
-module.exports = { registerImportIpc, loadFile, customFieldsOf };
+module.exports = { registerImportIpc, loadFile };

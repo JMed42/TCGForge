@@ -5,22 +5,18 @@ import CardRender, { cardPixelSize } from '../../designer/render/CardRender.tsx'
 import { resolveTemplate, orderRules, describeResolution } from '../../designer/rules/resolveTemplate.ts'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
 import { useParsedTemplates } from './CardPreviewPane'
+import { KIND_LABELS, keyFromLabel } from '../../cardModel/model'
 
 // CSV/XLSX import (spec: "maps spreadsheet columns onto custom fields, with a preview before
 // commit"). Choose a file → map each column → check the plan and a live render of any row →
 // import in one transaction.
 
-const FIELD_LABELS = {
-  name: 'Name', type: 'Type', set_name: 'Set', rarity: 'Rarity', cost: 'Cost', power: 'Power', toughness: 'Toughness',
-  rules_text: 'Rules text', flavor_text: 'Flavor text', tags: 'Tags', notes: 'Notes', image_path: 'Image path',
-}
 const ACTION_STYLE = {
   create: 'bg-emerald-600/20 text-emerald-400',
   update: 'bg-sky-600/20 text-sky-400',
   skip: 'bg-surface-3 text-text-muted',
 }
 const ipcMessage = (error) => String(error?.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-const slug = (h) => String(h).normalize('NFKD').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase().replace(/^([0-9])/, 'f_$1').slice(0, 64)
 
 function PlannedCardRender({ row, projectId }) {
   const cards = useStore((s) => s.cards)
@@ -28,11 +24,16 @@ function PlannedCardRender({ row, projectId }) {
   const assetVersions = useStore((s) => s.assetVersions)
   const templates = useParsedTemplates()
   const fonts = useProjectFonts(projectId)
+  const types = useStore((s) => s.cardModel.types)
   const card = useMemo(() => {
     if (!row) return null
     const base = row.cardId ? cards.find((c) => c.id === row.cardId) || {} : { id: `import-${row.line}` }
-    return { ...base, ...row.data, custom_fields: row.data.custom_fields ?? base.custom_fields ?? {} }
-  }, [row, cards])
+    const type = types.find((t) => t.id === (row.data.card_type_id ?? base.card_type_id))
+    return {
+      ...base, ...row.data, custom_fields: row.data.custom_fields ?? base.custom_fields ?? {},
+      card_type: type ? type.name : row.data.card_type_name || base.card_type, card_type_template_id: type ? type.template_id : null,
+    }
+  }, [row, cards, types])
   const ids = useMemo(() => [...templates.keys()], [templates])
   const res = useMemo(() => (card ? resolveTemplate(card, orderRules(rules), ids) : null), [card, rules, ids])
   const template = res?.templateId ? templates.get(res.templateId)?.template : null
@@ -56,7 +57,8 @@ export default function ImportDialog({ onClose }) {
   const projectId = useStore((s) => s.activeProjectId)
   const [info, setInfo] = useState(null) // readSpreadsheet result
   const [mapping, setMapping] = useState([])
-  const [options, setOptions] = useState({ matchBy: 'name', blankClears: false })
+  const model = useStore((s) => s.cardModel)
+  const [options, setOptions] = useState(() => ({ matchBy: 'name', blankClears: false, typeId: useStore.getState().cardModel.types[0]?.id ?? null, createTypes: true, addFieldsToTypes: true }))
   const [plan, setPlan] = useState(null)
   const [selected, setSelected] = useState(null)
   const [error, setError] = useState(null)
@@ -112,7 +114,7 @@ export default function ImportDialog({ onClose }) {
     try {
       const r = await window.api.commitImport(info.token, mapping, options)
       setResult(r)
-      await useStore.getState().loadCards()
+      await Promise.all([useStore.getState().loadCards(), useStore.getState().loadCardModel()])
     } catch (e) {
       setError(ipcMessage(e))
     } finally {
@@ -120,14 +122,15 @@ export default function ImportDialog({ onClose }) {
     }
   }
 
+  // Targets for a column: nothing, Name, Card type, a field of the project, or a new field.
   const targetOptions = (header, current) => {
-    const opts = [['ignore', '— Ignore —'], ...Object.entries(FIELD_LABELS)]
-    const custom = new Set(info.customFields)
-    const own = slug(header)
-    if (own) custom.add(own)
-    if (current.startsWith('custom:')) custom.add(current.slice(7))
-    return { builtin: opts, custom: [...custom].sort() }
+    const fresh = new Set()
+    const own = keyFromLabel(header)
+    if (own && !model.fields.some((f) => f.key === own)) fresh.add(own)
+    if (current.startsWith('new:')) fresh.add(current.slice(4))
+    return { fields: model.fields, fresh: [...fresh] }
   }
+  const mappedToType = mapping.includes('card_type')
 
   const samples = (col) => info.sampleRows.map((r) => r[col]).filter((v) => v && v.trim()).slice(0, 3)
   const selectedRow = plan?.rows.find((r) => r.line === selected) || null
@@ -179,6 +182,24 @@ export default function ImportDialog({ onClose }) {
                     First row is column names
                   </label>
                 </div>
+                <div className="space-y-1.5 rounded bg-surface-2/60 p-2">
+                  <label className="flex items-center gap-2 text-text-muted">
+                    {mappedToType ? 'Rows without a card type are' : 'New cards are'}
+                    <select data-testid="import-type" className="px-2 py-1 bg-surface-2 border border-border rounded text-text-primary" value={options.typeId ?? ''} onChange={(e) => setOptions((o) => ({ ...o, typeId: Number(e.target.value) }))}>
+                      {model.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  </label>
+                  {mappedToType && (
+                    <label className="flex items-center gap-1 text-text-muted">
+                      <input type="checkbox" checked={options.createTypes} onChange={(e) => setOptions((o) => ({ ...o, createTypes: e.target.checked }))} className="accent-accent" data-testid="import-create-types" />
+                      Create card types that don't exist yet
+                    </label>
+                  )}
+                  <label className="flex items-center gap-1 text-text-muted">
+                    <input type="checkbox" checked={options.addFieldsToTypes} onChange={(e) => setOptions((o) => ({ ...o, addFieldsToTypes: e.target.checked }))} className="accent-accent" />
+                    Add imported fields to the card types that use them
+                  </label>
+                </div>
                 <div className="flex gap-3 items-center flex-wrap">
                   <select data-testid="import-match" className="px-2 py-1 bg-surface-2 border border-border rounded text-text-primary" value={options.matchBy} onChange={(e) => setOptions((o) => ({ ...o, matchBy: e.target.value }))}>
                     <option value="name">Update cards with the same name</option>
@@ -200,7 +221,7 @@ export default function ImportDialog({ onClose }) {
                   </thead>
                   <tbody>
                     {info.headers.map((h, i) => {
-                      const { builtin, custom } = targetOptions(h, mapping[i] || 'ignore')
+                      const { fields, fresh } = targetOptions(h, mapping[i] || 'ignore')
                       return (
                         <tr key={i} className="border-b border-border align-top" data-map-row={i}>
                           <td className="px-3 py-2">
@@ -214,10 +235,17 @@ export default function ImportDialog({ onClose }) {
                               value={mapping[i] || 'ignore'}
                               onChange={(e) => setMapping((m) => m.map((t, j) => (j === i ? e.target.value : t)))}
                             >
-                              {builtin.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                              <optgroup label="Custom fields">
-                                {custom.map((k) => <option key={k} value={`custom:${k}`}>{k}{info.customFields.includes(k) ? '' : ' (new)'}</option>)}
+                              <option value="ignore">— Ignore —</option>
+                              <option value="name">Name</option>
+                              <option value="card_type">Card type</option>
+                              <optgroup label="Fields">
+                                {fields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
                               </optgroup>
+                              {fresh.length > 0 && (
+                                <optgroup label="New field">
+                                  {fresh.map((k) => <option key={k} value={`new:${k}`}>New field: {k === keyFromLabel(h) ? h : k}</option>)}
+                                </optgroup>
+                              )}
                             </select>
                           </td>
                         </tr>
@@ -237,6 +265,13 @@ export default function ImportDialog({ onClose }) {
                     <span className="text-sky-400">{plan.counts.update} updated</span>
                     <span className="text-text-muted">{plan.counts.skip} skipped</span>
                     {plan.counts.empty > 0 && <span className="text-text-muted">{plan.counts.empty} empty rows ignored</span>}
+                    {(plan.newTypes.length > 0 || plan.newFields.length > 0) && (
+                      <span className="text-amber-300" data-testid="import-model-changes">
+                        Adds {plan.newTypes.length ? `type${plan.newTypes.length > 1 ? 's' : ''} ${plan.newTypes.join(', ')}` : ''}
+                        {plan.newTypes.length && plan.newFields.length ? ' and ' : ''}
+                        {plan.newFields.length ? `field${plan.newFields.length > 1 ? 's' : ''} ${plan.newFields.map((f) => `${f.label} (${KIND_LABELS[f.kind]})`).join(', ')}` : ''}
+                      </span>
+                    )}
                   </>
                 ) : <span className="text-text-muted">…</span>}
               </div>
@@ -248,6 +283,7 @@ export default function ImportDialog({ onClose }) {
                         <th className="px-3 py-2 font-medium w-12">Row</th>
                         <th className="px-3 py-2 font-medium w-20">Action</th>
                         <th className="px-3 py-2 font-medium">Card</th>
+                        <th className="px-3 py-2 font-medium w-28">Type</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -263,7 +299,9 @@ export default function ImportDialog({ onClose }) {
                           <td className="px-3 py-1.5">
                             <span className="text-text-primary">{r.name || '—'}</span>
                             {r.problems.map((p) => <span key={p} className="ml-2 text-danger">⚠ {p}</span>)}
+                            {r.notes?.map((n) => <span key={n} className="ml-2 text-amber-300/80">{n}</span>)}
                           </td>
+                          <td className="px-3 py-1.5 text-text-secondary">{r.type || '—'}</td>
                         </tr>
                       ))}
                     </tbody>

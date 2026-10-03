@@ -125,7 +125,7 @@ app.whenReady().then(async () => {
     registerClipboardIpc(ipcMain, { clipboard, userDataPath: app.getPath('userData') });
     registerImportIpc(ipcMain, {
       queryCards: database.queryCards,
-      getProject: database.getProject,
+      getCardModel: (projectId) => { const model = database.getCardModelApi(); model.ensureTypes(projectId); return model.getModel(projectId); },
       importCards: database.importCards,
       dialog,
       getWindow: () => mainWindow,

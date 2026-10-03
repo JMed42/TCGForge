@@ -83,38 +83,63 @@ test('xlsx: hostile and broken files are refused', () => {
 
 // ----- mapping and plan -----
 
-test('suggestMapping: exact names, existing custom fields, aliases, new custom keys', () => {
-  const headers = ['Card Name', 'Type', 'ATK', 'HP', 'Text', 'Faction', 'Art Credit', 'Set', 'Column D', '42 Things'];
-  assert.deepEqual(cardImport.suggestMapping(headers, ['faction']), [
-    'name', 'type', 'power', 'toughness', 'rules_text', 'custom:faction', 'custom:art_credit', 'set_name', 'ignore', 'custom:f_42_things',
+// A project model like the user's: a Unit type with cost, atk and effect; a Spell type.
+const MODEL = {
+  fields: [
+    { key: 'cost', label: 'Cost', kind: 'number' }, { key: 'atk', label: 'ATK', kind: 'number' },
+    { key: 'effect', label: 'Effect', kind: 'longText' }, { key: 'rules_text', label: 'Card text', kind: 'longText' },
+  ],
+  types: [{ id: 1, name: 'Unit', field_keys: ['cost', 'atk', 'effect'] }, { id: 2, name: 'Spell', field_keys: ['cost', 'effect'] }],
+};
+
+test('suggestMapping: card type column, library fields by label, aliases, new fields', () => {
+  const table = cardImport.toTable([
+    ['Card Name', 'Type', 'ATK', 'Effect', 'Attunement Cost', 'Text', 'Art Credit', 'Column H', 'Cost'],
+    ['Knight', 'Unit', '3', 'x', '2', 'y', 'z', '', '1'],
+    ['Bolt', 'Spell', '', 'x', '', '', '', '', '1'],
   ]);
-  assert.deepEqual(cardImport.suggestMapping(['Name', 'Title']), ['name', 'ignore'], 'a field is mapped once');
+  assert.deepEqual(cardImport.suggestMapping(table, MODEL), [
+    'name', 'card_type', 'atk', 'effect', 'new:attunement_cost', 'rules_text', 'new:art_credit', 'ignore', 'cost',
+  ]);
+  const mtg = cardImport.toTable([['Name', 'Type'], ['Ember Drake', 'Creature \u2014 Dragon']]);
+  assert.deepEqual(cardImport.suggestMapping(mtg, MODEL), ['name', 'new:type'], 'a "Type" column of type lines is not the card type');
+  assert.deepEqual(cardImport.suggestMapping(cardImport.toTable([['Name', 'Title']]), MODEL), ['name', 'ignore'], 'a field is mapped once');
 });
 
-test('buildPlan: create, update by name, duplicates, missing names, tags, custom fields', () => {
+test('buildPlan: types from a column (new ones created), fields added to types, kinds guessed', () => {
   const table = cardImport.toTable([
-    ['Name', 'Cost', 'Tags', 'Faction', 'Unused'],
-    ['Ember Drake', '6', 'dragon; fire', 'Ember', 'x'],
-    ['New Card', '', 'a,b', '', ''],
-    ['', '1', '', '', ''],
-    ['new card', '2', '', '', ''],
-    ['', '', '', '', ''],
+    ['Name', 'Card Type', 'ATK', 'Attunement Cost', 'Flying', 'Tags'],
+    ['Knight', 'Unit', '3', '', 'TRUE', 'a; b'],
+    ['Sword', 'Equipment', '', '2', 'FALSE', ''],
+    ['Bolt', 'Spell', '', '', '', ''],
+    ['', 'Unit', '1', '', '', ''],
+    ['knight', 'Unit', '9', '', '', ''],
+    ['', '', '', '', '', ''],
   ]);
-  const existing = [{ id: 7, name: 'Ember Drake', custom_fields: '{"artist":"Procedural","faction":"Old"}' }];
-  const { rows, counts } = cardImport.buildPlan(table, ['name', 'cost', 'tags', 'custom:faction', 'ignore'], existing);
-  assert.deepEqual(counts, { create: 1, update: 1, skip: 2, empty: 1 });
-  assert.deepEqual(rows[0], {
-    line: 2, action: 'update', cardId: 7, name: 'Ember Drake', problems: [],
-    data: { name: 'Ember Drake', cost: '6', tags: ['dragon', 'fire'], custom_fields: { artist: 'Procedural', faction: 'Ember' } },
-  });
-  assert.deepEqual(rows[1].data, { name: 'New Card', tags: ['a', 'b'] }, 'blank cells are left out');
-  assert.deepEqual(rows[2].problems, ['no card name']);
-  assert.deepEqual([rows[3].action, rows[3].problems], ['skip', ['same name as row 3']]);
-  assert.throws(() => cardImport.buildPlan(table, ['cost', 'ignore', 'ignore', 'ignore', 'ignore']), /card name/);
-  assert.throws(() => cardImport.buildPlan(table, ['name', 'name', 'ignore', 'ignore', 'ignore']), /two columns/);
-  assert.throws(() => cardImport.buildPlan(table, ['name', 'custom:bad key', 'ignore', 'ignore', 'ignore']), /not a valid field name/);
-  const noMatch = cardImport.buildPlan(table, ['name', 'cost', 'tags', 'custom:faction', 'ignore'], existing, { matchBy: 'none' });
-  assert.equal(noMatch.rows[0].action, 'create');
+  const mapping = ['name', 'card_type', 'atk', 'new:attunement_cost', 'new:flying', 'new:tags'];
+  const existing = [{ id: 7, name: 'Bolt', card_type_id: 2, custom_fields: '{"lore":"old"}' }];
+  const plan = cardImport.buildPlan(table, mapping, existing, MODEL, { typeId: 1 });
+  assert.deepEqual(plan.counts, { create: 2, update: 1, skip: 2, empty: 1 });
+  assert.deepEqual(plan.newTypes, ['Equipment']);
+  assert.deepEqual(plan.newFields.map((f) => [f.key, f.kind]), [['attunement_cost', 'number'], ['flying', 'yesNo'], ['tags', 'tags']]);
+  const [knight, sword, bolt] = plan.rows;
+  assert.equal(knight.data.card_type_id, 1);
+  assert.deepEqual(knight.data.custom_fields, { atk: '3', flying: true });
+  assert.deepEqual(knight.data.tags, ['a', 'b']);
+  assert.equal(sword.data.card_type_name, 'Equipment');
+  assert.deepEqual(sword.data.custom_fields, { attunement_cost: '2', flying: false });
+  assert.equal(bolt.action, 'update');
+  assert.equal(bolt.data.card_type_id, 2);
+  assert.deepEqual(plan.rows[3].problems, ['no card name']);
+  assert.deepEqual(plan.rows[4].problems, ['same name as row 2']);
+  const adds = Object.fromEntries(plan.typeFieldAdds.map((a) => [a.typeId || a.typeName, a.keys.sort()]));
+  assert.deepEqual(adds, { 1: ['flying', 'tags'], Equipment: ['attunement_cost', 'flying'] }, 'Spell gets nothing: its row fills no new field');
+  assert.throws(() => cardImport.buildPlan(table, ['card_type', 'ignore', 'atk', 'ignore', 'ignore', 'ignore'], [], MODEL), /card name/);
+  assert.throws(() => cardImport.buildPlan(table, ['name', 'card_type', 'card_type', 'ignore', 'ignore', 'ignore'], [], MODEL), /two columns/);
+  assert.throws(() => cardImport.buildPlan(table, ['name', 'hp', 'ignore', 'ignore', 'ignore', 'ignore'], [], MODEL), /unknown field/);
+  const strict = cardImport.buildPlan(table, mapping, [], MODEL, { createTypes: false, addFieldsToTypes: false });
+  assert.deepEqual(strict.rows[1].problems, ['no card type "Equipment"']);
+  assert.match(strict.rows[0].notes[0], /Unit doesn't use flying, tags/);
 });
 
 test('toTable without a header row names columns by letter', () => {
@@ -123,43 +148,47 @@ test('toTable without a header row names columns by letter', () => {
 
 // ----- IPC end to end -----
 
-test('import IPC: read, change sheet, preview, commit once', async () => {
+test('import IPC: read, change sheet, preview, commit once; new types and fields land in the model', async () => {
   const dir = tempDir('import');
   await database.initDatabase(dir);
   const db = fakeIpc();
   database.registerIpcHandlers(db.ipcMain);
   const ipc = fakeIpc();
-  registerImportIpc(ipc.ipcMain, { queryCards: database.queryCards, getProject: database.getProject, importCards: database.importCards, dialog: {}, getWindow: () => null });
-  const p = await db.call('createProject', { name: 'P', cardSchema: { fields: [{ name: 'element', type: 'text' }] } });
+  const model = database.getCardModelApi();
+  registerImportIpc(ipc.ipcMain, { queryCards: database.queryCards, getCardModel: (pid) => model.getModel(pid), importCards: database.importCards, dialog: {}, getWindow: () => null });
+  const p = await db.call('createProject', { name: 'P', starter: 'blank' });
   await db.call('createCard', p.id, { name: 'Ember Drake', cost: '5', custom_fields: { artist: 'Procedural' } });
 
   const file = path.join(dir, 'set.xlsx');
   fs.writeFileSync(file, xlsx([
     { name: 'Readme', rows: [['ignore me']] },
-    { name: 'Cards', rows: [['Name', 'Cost', 'Element', 'Rules'], ['Ember Drake', 6, 'Fire', ''], ['Tide Caller', 3, 'Water', 'Draw a card.']] },
+    { name: 'Cards', rows: [['Name', 'Card Type', 'Cost', 'Element', 'Rules'], ['Ember Drake', '', 6, 'Fire', ''], ['Tide Caller', 'Unit', 3, 'Water', 'Draw a card.']] },
   ]));
   const first = await ipc.call('readSpreadsheet', p.id, { inputPath: file });
   assert.equal(first.kind, 'xlsx');
   assert.deepEqual(first.sheets, ['Readme', 'Cards']);
-  assert.equal(first.sheet, 'Readme');
   const read = await ipc.call('readSpreadsheet', p.id, { token: first.token, sheet: 'Cards' });
-  assert.deepEqual(read.headers, ['Name', 'Cost', 'Element', 'Rules']);
-  assert.deepEqual(read.suggestedMapping, ['name', 'cost', 'custom:element', 'rules_text']);
-  assert.ok(read.customFields.includes('element') && read.customFields.includes('artist'));
-  assert.equal(read.rowCount, 2);
+  assert.deepEqual(read.headers, ['Name', 'Card Type', 'Cost', 'Element', 'Rules']);
+  assert.deepEqual(read.suggestedMapping, ['name', 'card_type', 'cost', 'new:element', 'rules_text']);
 
   const preview = await ipc.call('previewImport', read.token, read.suggestedMapping, {});
   assert.deepEqual(preview.counts, { create: 1, update: 1, skip: 0, empty: 0 });
+  assert.deepEqual(preview.newTypes, ['Unit']);
+  assert.deepEqual(preview.newFields.map((f) => f.key), ['element']);
   assert.equal(database.queryCards(p.id).length, 1, 'preview writes nothing');
 
   const res = await ipc.call('commitImport', read.token, read.suggestedMapping, {});
-  assert.deepEqual(res, { created: 1, updated: 1, skipped: 0, empty: 0 });
+  assert.deepEqual(res, { created: 1, updated: 1, newTypes: 1, newFields: 1, skipped: 0, empty: 0 });
   const cards = database.queryCards(p.id);
   const ember = cards.find((c) => c.name === 'Ember Drake');
   assert.equal(ember.cost, '6');
   assert.deepEqual(JSON.parse(ember.custom_fields), { artist: 'Procedural', element: 'Fire' });
+  assert.equal(ember.card_type, 'Card', 'an update without a type cell keeps its type');
   const tide = cards.find((c) => c.name === 'Tide Caller');
+  assert.equal(tide.card_type, 'Unit');
   assert.equal(tide.rules_text, 'Draw a card.');
+  const m = model.getModel(p.id);
+  assert.deepEqual(m.types.map((t) => [t.name, t.field_keys]), [['Card', ['cost', 'rules_text', 'image_path', 'element']], ['Unit', ['cost', 'element', 'rules_text']]]);
   await assert.rejects(() => ipc.call('commitImport', read.token, read.suggestedMapping, {}), /expired/);
 
   const csvFile = path.join(dir, 'more.csv');
@@ -181,10 +210,11 @@ test('a workbook saved by Excel: sheets, formulas, line breaks and date formats'
   assert.equal(rows[1][10], '2026-01-01', 'date-formatted serial becomes an ISO date');
   assert.equal(rows[4][3], '5', 'formula cell gives its cached value');
   const table = cardImport.toTable(rows);
-  const mapping = cardImport.suggestMapping(table.headers);
-  assert.deepEqual(mapping, ['name', 'type', 'rarity', 'cost', 'power', 'toughness', 'rules_text', 'flavor_text', 'custom:faction', 'tags', 'custom:release']);
-  const plan = cardImport.buildPlan(table, mapping);
+  const mapping = cardImport.suggestMapping(table, { fields: [], types: [] });
+  assert.deepEqual(mapping, ['name', 'new:type', 'new:rarity', 'new:cost', 'new:atk', 'new:hp', 'new:rules_text', 'new:flavor_text', 'new:faction', 'new:tags', 'new:release']);
+  const plan = cardImport.buildPlan(table, mapping, [], { fields: [], types: [{ id: 1, name: 'Card', field_keys: [] }] });
   assert.deepEqual(plan.counts, { create: 4, update: 0, skip: 2, empty: 0 });
+  assert.deepEqual(Object.fromEntries(plan.newFields.map((f) => [f.key, f.kind])).atk, 'number');
   assert.equal(plan.rows[0].data.rules_text, 'Flying.\nWhen Ember Drake enters play, deal 2 damage to each opposing creature.');
 });
 
