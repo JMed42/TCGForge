@@ -12,6 +12,7 @@ export default function PrintSheetsDialog({ onClose }) {
   const [bleedMm, setBleedMm] = useState(3)
   const [cropMarks, setCropMarks] = useState(true)
   const [copies, setCopies] = useState(1)
+  const [byRules, setByRules] = useState(false) // each card's own template (override / rules)
   const [layout, setLayout] = useState(null)
   const [progress, setProgress] = useState(null)
   const [result, setResult] = useState(null)
@@ -33,8 +34,8 @@ export default function PrintSheetsDialog({ onClose }) {
     setResult(null)
     setProgress({ current: 0, total: slots })
     try {
-      const res = await window.api.exportPrintSheets(activeProjectId, activeTemplateId, {
-        paper, bleedMm, cropMarks, copies, filter: cardFilters, draft,
+      const res = await window.api.exportPrintSheets(activeProjectId, byRules ? 'auto' : activeTemplateId, {
+        paper, bleedMm, cropMarks, copies, filter: cardFilters, ...(byRules ? {} : { draft }),
       })
       setResult(res.canceled ? null : res)
     } catch (err) {
@@ -53,6 +54,13 @@ export default function PrintSheetsDialog({ onClose }) {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
+          <label className="space-y-1 col-span-2">
+            <span className="text-xs text-text-secondary">Template</span>
+            <select className={selectClass} value={byRules ? 'auto' : 'this'} onChange={(e) => setByRules(e.target.value === 'auto')} data-testid="sheet-template">
+              <option value="this">This template (as edited)</option>
+              <option value="auto">Each card's template (rules)</option>
+            </select>
+          </label>
           <label className="space-y-1">
             <span className="text-xs text-text-secondary">Paper</span>
             <select className={selectClass} value={paper} onChange={(e) => setPaper(e.target.value)}>
@@ -85,6 +93,7 @@ export default function PrintSheetsDialog({ onClose }) {
               {slots} card{slots === 1 ? '' : 's'} · <strong className="text-text-primary">{pages} page{pages === 1 ? '' : 's'}</strong>
               <div className="text-xs text-text-muted mt-1">
                 Card {layout.cardWidthMm.toFixed(1)} × {layout.cardHeightMm.toFixed(1)} mm{bleedMm ? ` + ${bleedMm} mm bleed` : ''}. Uses the current card filter. Print at 100% / actual size.
+                {byRules && ' With rules, cards of other sizes go on their own pages, so the count may differ.'}
               </div>
             </>
           ) : <span className="text-danger">This card size doesn't fit on {paper === 'a4' ? 'A4' : 'Letter'}.</span>)}

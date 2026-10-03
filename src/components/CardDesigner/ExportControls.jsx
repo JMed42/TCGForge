@@ -12,6 +12,7 @@ const SINGLE_OPTIONS = [
 export default function ExportControls() {
   const { activeProjectId, activeTemplateId, previewCardId, cardFilters, draft } = useStore()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [allMenuOpen, setAllMenuOpen] = useState(false)
   const [status, setStatus] = useState(null)
   const [batch, setBatch] = useState(null) // { running, current, total, result }
   const [sheetsOpen, setSheetsOpen] = useState(false)
@@ -35,14 +36,16 @@ export default function ExportControls() {
     }
   }
 
-  const exportAll = async () => {
+  // byRules: each card's own template (override, then template rules) instead of this one.
+  const exportAll = async (byRules) => {
+    setAllMenuOpen(false)
     setBatch({ running: true, current: 0, total: 0 })
     try {
-      const result = await window.api.exportAllCards(activeProjectId, activeTemplateId, {
+      const result = await window.api.exportAllCards(activeProjectId, byRules ? 'auto' : activeTemplateId, {
         format: 'png',
         dpi: 300,
         filter: cardFilters,
-        draft, // export what the editor shows, saved or not
+        ...(byRules ? {} : { draft }), // export what the editor shows, saved or not
       })
       if (result?.canceled) { setBatch(null); return }
       setBatch({ running: false, result })
@@ -89,14 +92,28 @@ export default function ExportControls() {
       </button>
       {sheetsOpen && <PrintSheetsDialog onClose={() => setSheetsOpen(false)} />}
 
-      <button
-        onClick={exportAll}
-        disabled={disabled}
-        className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:brightness-110 disabled:opacity-40 rounded-lg text-sm text-white font-medium"
-      >
-        <Images size={16} />
-        Export All Cards
-      </button>
+      <div className="relative">
+        <button
+          onClick={() => setAllMenuOpen((o) => !o)}
+          disabled={disabled}
+          data-testid="export-all"
+          className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:brightness-110 disabled:opacity-40 rounded-lg text-sm text-white font-medium"
+        >
+          <Images size={16} />
+          Export All Cards
+          <ChevronDown size={14} />
+        </button>
+        {allMenuOpen && (
+          <div className="absolute right-0 mt-1 w-72 bg-surface-2 border border-border rounded-lg shadow-xl z-20 py-1">
+            <button onClick={() => exportAll(false)} className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-surface-3 hover:text-text-primary">
+              PNG 300 dpi with this template
+            </button>
+            <button onClick={() => exportAll(true)} data-testid="export-all-rules" className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-surface-3 hover:text-text-primary">
+              PNG 300 dpi with each card's template (rules)
+            </button>
+          </div>
+        )}
+      </div>
 
       {status && (
         <div className="fixed bottom-4 right-4 z-30 max-w-md bg-surface-2 border border-border rounded-lg shadow-xl p-3 text-sm">
