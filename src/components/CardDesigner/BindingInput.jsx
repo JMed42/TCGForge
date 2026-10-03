@@ -67,7 +67,12 @@ export default function BindingInput({ value, onChange, fields, card, multiline 
       >
         <option value="">{bare ? 'Insert field or function…' : 'Insert binding…'}</option>
         <optgroup label="Card fields">
-          {fields.map((f) => <option key={f} value={f}>{bare ? f : `{{${f}}}`}</option>)}
+          {fields.map((f) => {
+            const key = typeof f === 'string' ? f : f.key
+            const label = typeof f === 'string' ? '' : f.label
+            const token = bare ? key : `{{${key}}}`
+            return <option key={key} value={key}>{label && label !== key ? `${label}  ${token}` : token}</option>
+          })}
         </optgroup>
         <optgroup label="Functions">
           {FUNCTION_NAMES.map((fn) => <option key={fn} value={FUNCTION_SNIPPETS[fn] || `${fn}()`}>{FUNCTION_SNIPPETS[fn] || `${fn}()`}</option>)}

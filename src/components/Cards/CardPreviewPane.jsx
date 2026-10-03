@@ -88,8 +88,8 @@ export default function CardPreviewPane({ onClose, onOpenRules }) {
     <div className="flex flex-col h-full bg-surface-1 border-l border-border" data-testid="card-preview" data-last-render-ms={lastMs === null ? '' : lastMs.toFixed(1)}>
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <span className="text-sm font-medium text-text-primary truncate flex-1" title={card?.name}>{card ? card.name || 'Unnamed card' : 'No card selected'}</span>
-        <button onClick={onOpenRules} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-surface-2 hover:bg-surface-3 text-text-secondary" data-testid="open-template-rules" title="Template rules">
-          <ListOrdered size={14} /> Rules…
+        <button onClick={onOpenRules} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-surface-2 hover:bg-surface-3 text-text-secondary" data-testid="open-template-rules" title="Template assignment: which template each card uses">
+          <ListOrdered size={14} /> Assignment…
         </button>
         <button onClick={onClose} className="p-1 rounded hover:bg-surface-3 text-text-muted" title="Hide preview"><PanelRightClose size={16} /></button>
       </div>
@@ -107,7 +107,7 @@ export default function CardPreviewPane({ onClose, onOpenRules }) {
               value={overrideId}
               onChange={(e) => useStore.getState().setTemplateOverride(card.id, e.target.value ? Number(e.target.value) : null)}
             >
-              <option value="">By rules</option>
+              <option value="">Automatic (type / exceptions)</option>
               {[...templates.values()].map(({ row }) => <option key={row.id} value={row.id}>{row.name}</option>)}
             </select>
           </label>

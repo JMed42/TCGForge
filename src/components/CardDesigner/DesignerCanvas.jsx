@@ -9,6 +9,7 @@ import { useStore } from '../../store'
 import CardRender, { cardPixelSize } from '../../designer/render/CardRender.tsx'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
 import { isContainer } from '../../designer/schema/types.ts'
+import { sampleCards } from './sampleCards'
 import { absoluteBox, findRef, walk } from '../../designer/layout/tree.ts'
 import {
   HANDLES, alignBoxes, bounds, contains, distributeBoxes, intersects, moveBox, rectFromPoints, resizeBox, roundBox, scaleInto, snapBox, snapTargets,
@@ -51,8 +52,9 @@ function ToolButton({ title, onClick, disabled, active, children, testid }) {
 export default function DesignerCanvas() {
   const {
     draft, cards, previewCardId, activeProjectId, activeTemplateId, assetVersions, selectedIds,
-    setSelection, toggleSelection, edit, beginGesture, editLive, stepPreviewCard, setPreviewCard,
+    setSelection, toggleSelection, edit, beginGesture, editLive, stepPreviewCard, setPreviewCard, templates, templateRules, sampleScope, setSampleScope,
   } = useStore()
+  const samples = useMemo(() => sampleCards({ cards, templates, templateRules, activeTemplateId, sampleScope }), [cards, templates, templateRules, activeTemplateId, sampleScope])
   const fonts = useProjectFonts(activeProjectId, assetVersions)
   const viewportRef = useRef(null)
   const gestureRef = useRef(null)
@@ -416,7 +418,7 @@ export default function DesignerCanvas() {
   const showHandles = movableCount > 0 && movableCount === selectedIds.length
   const hovered = hoverId && !selectedIds.includes(hoverId) ? boxOf(hoverId) : null
   const enteredBox = entered ? boxOf(entered) : null
-  const cardIndex = cards.findIndex((c) => c.id === previewCardId)
+  const cardIndex = samples.list.findIndex((c) => c.id === previewCardId)
   const gridStep = pxPerMm >= 6 ? 1 : 5
 
   return (
@@ -454,18 +456,27 @@ export default function DesignerCanvas() {
         <ToolButton title="Ungroup (Ctrl+Shift+G)" testid="ungroup" disabled={selectedLayer?.type !== 'group'} onClick={ungroupSelected}><Ungroup size={15} /></ToolButton>
         <div className="flex-1" />
         {/* Sample-card switcher: step through real cards ([ and ]). */}
-        <ToolButton title="Previous card ([)" testid="card-prev" disabled={!cards.length} onClick={() => stepPreviewCard(-1)}><ChevronLeft size={15} /></ToolButton>
+        <button
+          type="button"
+          data-testid="sample-scope"
+          onClick={() => setSampleScope(sampleScope === 'all' ? 'template' : 'all')}
+          title={samples.none ? 'No cards use this template yet, so all cards are shown' : 'Switch between the cards this template draws and all cards'}
+          className={`px-1.5 py-0.5 rounded ${sampleScope !== 'all' && !samples.none ? 'bg-surface-3 text-accent' : 'hover:bg-surface-2'}`}
+        >
+          {sampleScope === 'all' ? 'All cards' : samples.none ? 'All cards (none use it)' : 'Cards using it'}
+        </button>
+        <ToolButton title="Previous card ([)" testid="card-prev" disabled={!samples.list.length} onClick={() => stepPreviewCard(-1)}><ChevronLeft size={15} /></ToolButton>
         <select
           data-testid="sample-card"
           value={previewCardId ?? ''}
           onChange={(e) => setPreviewCard(Number(e.target.value))}
           className="max-w-[12rem] px-1.5 py-0.5 bg-surface-2 border border-border rounded text-xs text-text-primary focus:outline-none"
         >
-          {cards.length === 0 && <option value="">No cards</option>}
-          {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {samples.list.length === 0 && <option value="">No cards</option>}
+          {samples.list.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <span className="tabular-nums">{cards.length ? `${cardIndex + 1}/${cards.length}` : ''}</span>
-        <ToolButton title="Next card (])" testid="card-next" disabled={!cards.length} onClick={() => stepPreviewCard(1)}><ChevronRight size={15} /></ToolButton>
+        <span className="tabular-nums">{samples.list.length ? `${cardIndex + 1}/${samples.list.length}` : ''}</span>
+        <ToolButton title="Next card (])" testid="card-next" disabled={!samples.list.length} onClick={() => stepPreviewCard(1)}><ChevronRight size={15} /></ToolButton>
       </div>
 
       {/* Viewport */}

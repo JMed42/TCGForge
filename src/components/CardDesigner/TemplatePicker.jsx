@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Plus, Trash2, LayoutTemplate, FileDown, FileUp, ListOrdered } from 'lucide-react'
 import { useStore } from '../../store'
-import TemplateRulesDialog from '../Cards/TemplateRulesDialog'
+import TemplateAssignmentDialog from '../Cards/TemplateAssignmentDialog'
 
 export default function TemplatePicker() {
   const {
@@ -113,14 +113,14 @@ export default function TemplatePicker() {
           </button>
           <button
             data-testid="designer-template-rules"
-            onClick={async () => { await useStore.getState().loadTemplateRules(); setRulesOpen(true) }}
-            title="Which template each card uses"
+            onClick={async () => { const s = useStore.getState(); await Promise.all([s.loadTemplateRules(), s.loadCardModel()]); setRulesOpen(true) }}
+            title="Template assignment: which template each card type and card uses"
             className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1 bg-surface-2 hover:bg-surface-3 rounded-lg text-xs text-text-secondary hover:text-text-primary"
           >
-            <ListOrdered size={14} /> Rules
+            <ListOrdered size={14} /> Assign
           </button>
         </div>
-        {rulesOpen && <TemplateRulesDialog onClose={() => setRulesOpen(false)} />}
+        {rulesOpen && <TemplateAssignmentDialog onClose={() => setRulesOpen(false)} />}
         {fileStatus?.message && <p className="text-[11px] text-success" data-testid="file-status">{fileStatus.message}</p>}
         {fileStatus?.error && <p className="text-[11px] text-danger" data-testid="file-status">{fileStatus.error}</p>}
         {fileStatus?.warnings?.map((w) => <p key={w} className="text-[11px] text-warning">{w}</p>)}

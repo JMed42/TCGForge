@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import TopBar from './Layout/TopBar';
 import { CardTable, CardFilters, CardEditor, CardBulkActions } from './Cards';
 import CardPreviewPane from './Cards/CardPreviewPane';
-import TemplateRulesDialog from './Cards/TemplateRulesDialog';
+import TemplateAssignmentDialog from './Cards/TemplateAssignmentDialog';
 import ImportDialog from './Cards/ImportDialog';
 import MissingArtBanner from './Cards/MissingArtBanner';
 
@@ -105,7 +105,7 @@ export default function CardDatabase() {
 
       {selectedCount > 0 && <CardBulkActions />}
       {editingCard !== null && <CardEditor />}
-      {rulesOpen && <TemplateRulesDialog onClose={() => setRulesOpen(false)} />}
+      {rulesOpen && <TemplateAssignmentDialog onClose={() => setRulesOpen(false)} />}
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
     </div>
   );

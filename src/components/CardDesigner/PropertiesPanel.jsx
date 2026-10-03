@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useStore } from '../../store'
 import { isContainer } from '../../designer/schema/types.ts'
 import { bindableFields } from '../../designer/expr/scope.ts'
+import { bindingFields } from '../../cardModel/model'
 import { anchorsOf, setAnchors, setUnits } from '../../designer/layout/frame.ts'
 import { absoluteBox, findRef, parentBoxOf } from '../../designer/layout/tree.ts'
 import { getLayer, setSize, updateLayer } from '../../designer/editor/ops.ts'
@@ -157,8 +158,8 @@ function TemplateSettings({ draft, edit }) {
 }
 
 export default function PropertiesPanel() {
-  const { draft, selectedIds, edit, cards, previewCardId, activeProjectId, assetVersions } = useStore()
-  const fields = useMemo(() => bindableFields(cards), [cards])
+  const { draft, selectedIds, edit, cards, previewCardId, activeProjectId, assetVersions, cardModel } = useStore()
+  const fields = useMemo(() => (cardModel.fields.length ? bindingFields(cardModel) : bindableFields(cards)), [cardModel, cards])
   const fonts = useProjectFonts(activeProjectId, assetVersions)
   const card = cards.find((c) => c.id === previewCardId) || null
   if (!draft) return null

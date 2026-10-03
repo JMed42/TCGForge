@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Undo2, Redo2, Save, RotateCcw } from 'lucide-react'
 import { useStore } from '../../store'
+import { sampleCards } from './sampleCards'
 import TopBar from '../Layout/TopBar'
 import TemplatePicker from './TemplatePicker'
 import DesignerCanvas from './DesignerCanvas'
@@ -32,12 +33,19 @@ export default function DesignerView() {
 
   useEffect(() => {
     loadTemplates()
+    const s = useStore.getState()
+    s.loadTemplateRules()
+    s.loadCardModel()
   }, [loadTemplates])
 
-  // Default the preview card to the first card in the list.
+  // Default the preview card to the first sample card (cards this template draws).
+  const templates = useStore((s) => s.templates)
+  const templateRules = useStore((s) => s.templateRules)
+  const sampleScope = useStore((s) => s.sampleScope)
+  const samples = useMemo(() => sampleCards({ cards, templates, templateRules, activeTemplateId, sampleScope }).list, [cards, templates, templateRules, activeTemplateId, sampleScope])
   useEffect(() => {
-    if (!cards.some((c) => c.id === previewCardId)) setPreviewCard(cards[0]?.id ?? null)
-  }, [cards, previewCardId, setPreviewCard])
+    if (!samples.some((c) => c.id === previewCardId)) setPreviewCard(samples[0]?.id ?? null)
+  }, [samples, previewCardId, setPreviewCard])
 
   // Files replaced on disk re-render immediately.
 

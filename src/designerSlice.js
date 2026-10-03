@@ -11,11 +11,13 @@
 import { createHistory, pushHistory, undoHistory, redoHistory } from './components/CardDesigner/editor/history'
 import { validateTemplate } from './designer/schema/schema.ts'
 import { assetKey } from './designer/render/assetUrl.ts'
+import { sampleCards } from './components/CardDesigner/sampleCards'
 
 export const designerInitialState = {
   templates: [], // rows: { id, project_id, name, content, version, error, updated_at }
   activeTemplateId: null,
   previewCardId: null,
+  sampleScope: 'template', // 'template': cards the open template draws; 'all': every card
   draft: null,
   draftError: null, // stored JSON could not be opened
   savedJson: null, // JSON.stringify of the last saved template, for `dirty`
@@ -156,9 +158,12 @@ export function createDesignerSlice(set, get) {
       set({ previewCardId: id })
     },
 
-    // Step through the cards in the current list (Card Database filter). delta: +1 / -1.
+    setSampleScope: (scope) => set({ sampleScope: scope }),
+
+    // Step through the sample cards (those the open template draws, or all). delta: +1 / -1.
     stepPreviewCard: (delta) => {
-      const { cards, previewCardId } = get()
+      const { previewCardId } = get()
+      const cards = sampleCards(get()).list
       if (!cards.length) return
       const i = cards.findIndex((c) => c.id === previewCardId)
       const next = cards[((i < 0 ? 0 : i + delta) % cards.length + cards.length) % cards.length]
