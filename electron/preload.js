@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld('api', {
   importProject: (jsonData) => ipcRenderer.invoke('importProject', jsonData),
   exportCards: (projectId, format) => ipcRenderer.invoke('exportCards', projectId, format),
 
+  // Assets index
+  getAssets: (projectId, kind) => ipcRenderer.invoke('getAssets', projectId, kind),
+  getMissingArt: (projectId) => ipcRenderer.invoke('getMissingArt', projectId),
+
   // Card import (CSV / XLSX)
   // Path of a File from an <input type="file"> or a drop (File.path is gone in Electron 32+).
   pathForFile: (file) => webUtils.getPathForFile(file),

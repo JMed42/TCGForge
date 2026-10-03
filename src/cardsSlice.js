@@ -64,6 +64,7 @@ export function createCardsSlice(set, get) {
       const before = getFieldValue(card, key)
       if (before === String(value ?? '')) return
       if (await writeField(cardId, key, value)) {
+        if (key === 'image_path') get().loadMissingArt()
         set((s) => ({ cellHistory: recordCellEdit(s.cellHistory, { cardId, key, before, after: String(value ?? '') }) }))
       }
     },
@@ -92,6 +93,27 @@ export function createCardsSlice(set, get) {
         set({ cellError: ipcMessage(error) })
       }
     },
+
+    // ----- missing art (assets index) -----
+    loadMissingArt: async () => {
+      const { activeProjectId } = get()
+      if (!activeProjectId) { set({ missingArt: null }); return }
+      try {
+        const missingArt = await window.api.getMissingArt(activeProjectId)
+        if (get().activeProjectId === activeProjectId) set({ missingArt })
+      } catch (error) {
+        console.error('Failed to check card art:', error)
+      }
+    },
+    setMissingArtOnly: (on) => set({ missingArtOnly: Boolean(on) }),
+    // A project file changed on disk: re-check soon (the watcher fires in bursts).
+    assetsChanged: (() => {
+      let timer = null
+      return () => {
+        clearTimeout(timer)
+        timer = setTimeout(() => get().loadMissingArt(), 300)
+      }
+    })(),
 
     // ----- template rules -----
     loadTemplateRules: async () => {

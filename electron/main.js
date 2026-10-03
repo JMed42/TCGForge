@@ -6,6 +6,7 @@ const { registerCardDesignerIpc } = require('./cardDesigner/ipc');
 const { registerImportIpc } = require('./import/ipc');
 const { migrateLegacyData } = require('./legacyData');
 const assets = require('./assets');
+const { registerAssetIndexIpc } = require('./assetIndex');
 const { RenderService } = require('./renderWindow');
 
 // tcg-asset:// must be declared privileged before the app is ready.
@@ -90,7 +91,9 @@ app.whenReady().then(async () => {
     }
     await initDatabase(app.getPath('userData'));
     assets.registerAssetProtocol(protocol, net, app.getPath('userData'));
+    const assetIndex = registerAssetIndexIpc(ipcMain, { userDataPath: app.getPath('userData'), db: database });
     assets.watchProjectAssets(app.getPath('userData'), (change) => {
+      assetIndex.fileChanged(change);
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send('assetChanged', change);
       }

@@ -6,6 +6,7 @@ import { CardTable, CardFilters, CardEditor, CardBulkActions } from './Cards';
 import CardPreviewPane from './Cards/CardPreviewPane';
 import TemplateRulesDialog from './Cards/TemplateRulesDialog';
 import ImportDialog from './Cards/ImportDialog';
+import MissingArtBanner from './Cards/MissingArtBanner';
 
 const PANE_KEY = 'tcgforge.cardsPreview';
 
@@ -32,7 +33,7 @@ export default function CardDatabase() {
     const s = useStore.getState();
     s.loadTemplates();
     s.loadTemplateRules();
-    s.loadMissingArt?.();
+    s.loadMissingArt();
   }, [activeProjectId]);
 
   useEffect(() => {
@@ -86,6 +87,7 @@ export default function CardDatabase() {
       </TopBar>
 
       <CardFilters />
+      <MissingArtBanner />
 
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 min-w-0 flex flex-col">

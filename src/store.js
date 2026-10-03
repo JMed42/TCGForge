@@ -102,6 +102,7 @@ export const useStore = create((set, get) => ({
       }
       const cards = await window.api?.getCards?.(activeProjectId, cardFilters)
       set({ cards: (cards || []).map(toUiCard) })
+      get().loadMissingArt()
     } catch (error) {
       console.error('Failed to load cards:', error)
       set({ cards: [] })
