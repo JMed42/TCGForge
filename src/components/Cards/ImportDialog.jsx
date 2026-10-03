@@ -4,7 +4,7 @@ import { useStore } from '../../store'
 import CardRender, { cardPixelSize } from '../../designer/render/CardRender.tsx'
 import { resolveTemplate, orderRules, describeResolution } from '../../designer/rules/resolveTemplate.ts'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
-import { useParsedTemplates } from './CardPreviewPane'
+import { useParsedTemplates } from '../Fit/templates'
 import { KIND_LABELS, keyFromLabel } from '../../cardModel/model'
 
 // CSV/XLSX import (spec: "maps spreadsheet columns onto custom fields, with a preview before

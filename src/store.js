@@ -3,11 +3,13 @@ import { toUiCard, toUiProject } from './utils/cardData'
 import { createDesignerSlice } from './designerSlice'
 import { createCardsSlice } from './cardsSlice'
 import { createCardModelSlice } from './cardModelSlice'
+import { createFitSlice } from './fitSlice'
 
 export const useStore = create((set, get) => ({
   ...createDesignerSlice(set, get),
   ...createCardsSlice(set, get),
   ...createCardModelSlice(set, get),
+  ...createFitSlice(set, get),
 
   // Projects
   projects: [],
@@ -45,10 +47,14 @@ export const useStore = create((set, get) => ({
   openProject: async (id) => {
     get().resetDesigner()
     get().resetCardsScreen()
+    get().resetFit()
     set({ activeProjectId: id, activeView: 'cards' })
     await get().loadCardModel()
     await get().loadCards()
     await get().loadDocuments()
+    // Everything the background fit check needs, whichever screen is open (components/Fit).
+    await Promise.all([get().loadTemplates(), get().loadTemplateRules(), get().loadFitSignatures(), get().loadFitCache()])
+    if (get().activeProjectId === id) set({ fitReady: true })
   },
 
   createProject: async (data) => {
@@ -77,6 +83,7 @@ export const useStore = create((set, get) => ({
       const { activeProjectId } = get()
       if (activeProjectId === id) {
         get().resetDesigner()
+        get().resetFit()
         set({ activeProjectId: null, activeView: 'cards' })
       }
     } catch (error) {

@@ -155,6 +155,9 @@ function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
     // at the inherited size.
     const prevSize = inner.style.fontSize
     const prevLh = inner.style.lineHeight
+    const prevMinWidth = inner.style.minWidth
+    // A single line is laid out at least as wide as its box (for alignment); measure its own width.
+    if (!wrap) inner.style.minWidth = '0px'
     const measure = (pt: number, lh: number) => {
       inner.style.fontSize = `${ptToPx(pt, pxPerMm)}px`
       inner.style.lineHeight = String(lh)
@@ -165,6 +168,7 @@ function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
     const r = fitText({ basePt: startPt, baseLineHeight: baseLh, minPt, strategy }, measure, pxPerMm, wrap)
     inner.style.fontSize = prevSize
     inner.style.lineHeight = prevLh
+    inner.style.minWidth = prevMinWidth
     setResult(r)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selfFit, text, startPt, baseLh, minPt, strategy.join(','), boxKey, pxPerMm, fontsReady, s.font, s.weight, s.italic, s.letterSpacingPt, wrap, layer.type])

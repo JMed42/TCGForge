@@ -8,6 +8,7 @@ import ProjectSettings from './components/ProjectSettings'
 import CardTypesView from './components/CardTypes/CardTypesView'
 import { DesignerView } from './components/CardDesigner'
 import UnsavedChangesDialog from './components/CardDesigner/UnsavedChangesDialog'
+import FitRunner from './components/Fit/FitRunner'
 
 export default function App() {
   const { activeProjectId, activeView, loadProjects } = useStore()
@@ -43,6 +44,7 @@ export default function App() {
         {activeView === 'settings' && <ProjectSettings />}
       </div>
       <UnsavedChangesDialog />
+      <FitRunner key={activeProjectId} />
     </div>
   )
 }

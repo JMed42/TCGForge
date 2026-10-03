@@ -16,6 +16,7 @@ export interface FitResult {
   pt: number // size used
   lineHeight: number // line height used
   basePt: number // starting size
+  minPt: number // smallest size it may shrink to (the starting size when it may not shrink)
   fill: number // space needed at the starting size / space available (above 1: doesn't fit as set)
   overflowMm?: number // overflow: how far the text sticks out at the size used
   overflowLines?: number // ...in lines of that size, when it sticks out at the bottom
@@ -50,6 +51,7 @@ const linePx = (pt: number, lh: number, pxPerMm: number) => ptToPx(pt, pxPerMm) 
 const round2 = (n: number) => Math.round(n * 100) / 100
 const effectiveMin = (p: FitPolicy) => Math.min(p.minPt, p.basePt)
 const stepsOf = (p: FitPolicy) => Math.max(0, Math.floor((p.basePt - effectiveMin(p)) / STEP_PT + 1e-9))
+const floorOf = (p: FitPolicy) => (p.strategy.includes('shrink') ? Math.max(effectiveMin(p), p.basePt - stepsOf(p) * STEP_PT) : p.basePt)
 
 const overflows = (m: TextMeasure) => m.needH > m.roomH + TOLERANCE_PX || m.needW > m.roomW + TOLERANCE_PX
 
@@ -82,10 +84,10 @@ export function fitText(
   const { basePt, baseLineHeight: baseLh, strategy } = policy
   const minPt = effectiveMin(policy)
   const base = measure(basePt, baseLh)
-  const fill = round2(fillOf(base, wrap))
+  const common = { basePt, minPt: floorOf(policy), fill: round2(fillOf(base, wrap)) }
   if (!overflows(base)) {
     const spare = wrap ? Math.floor((base.roomH - base.needH + TOLERANCE_PX) / linePx(basePt, baseLh, pxPerMm)) : undefined
-    return { status: 'fits', pt: basePt, lineHeight: baseLh, basePt, fill, ...(spare !== undefined ? { spareLines: Math.max(0, spare) } : {}) }
+    return { status: 'fits', pt: basePt, lineHeight: baseLh, ...common, ...(spare !== undefined ? { spareLines: Math.max(0, spare) } : {}) }
   }
   let pt = basePt
   let lh = baseLh
@@ -110,9 +112,9 @@ export function fitText(
     }
     if (!fitted) lh = TIGHTEST_LINE_HEIGHT
   }
-  if (fitted) return { status: pt < basePt || lh < baseLh ? 'shrunk' : 'fits', pt, lineHeight: lh, basePt, fill }
-  if (strategy.includes('hide')) return { status: 'hidden', pt, lineHeight: lh, basePt, fill }
-  return { status: 'overflow', pt, lineHeight: lh, basePt, fill, ...overflowOf(measure(pt, lh), pt, lh, pxPerMm) }
+  if (fitted) return { status: pt < basePt || lh < baseLh ? 'shrunk' : 'fits', pt, lineHeight: lh, ...common }
+  if (strategy.includes('hide')) return { status: 'hidden', pt, lineHeight: lh, ...common }
+  return { status: 'overflow', pt, lineHeight: lh, ...common, ...overflowOf(measure(pt, lh), pt, lh, pxPerMm) }
 }
 
 // ------------------------------------------------------------------------- stacks
@@ -237,7 +239,7 @@ export function fitStack(
     const s = state[it.id]
     const atBase = base.items[it.id]
     const common = {
-      pt: s.pt, lineHeight: s.lineHeight, basePt: it.basePt,
+      pt: s.pt, lineHeight: s.lineHeight, basePt: it.basePt, minPt: floorOf(it),
       fill: round2(base.room > 0 && atBase ? atBase.size / base.room : 0), stackFill,
     }
     if (s.hidden) { out[it.id] = { status: 'hidden', ...common }; continue }

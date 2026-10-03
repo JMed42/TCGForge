@@ -173,12 +173,13 @@ export function createCardsSlice(set, get) {
       }
     },
     setMissingArtOnly: (on) => set({ missingArtOnly: Boolean(on) }),
-    // A project file changed on disk: re-check soon (the watcher fires in bursts).
+    // A project file changed on disk: re-check soon (the watcher fires in bursts). Fonts and
+    // images are fit-check inputs too.
     assetsChanged: (() => {
       let timer = null
       return () => {
         clearTimeout(timer)
-        timer = setTimeout(() => get().loadMissingArt(), 300)
+        timer = setTimeout(() => { get().loadMissingArt(); get().loadFitSignatures?.() }, 300)
       }
     })(),
 

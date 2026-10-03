@@ -2,8 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ClipboardPaste, ListOrdered, PanelRightClose } from 'lucide-react'
 import { useStore } from '../../store'
 import CardRender, { cardPixelSize } from '../../designer/render/CardRender.tsx'
-import { validateTemplate } from '../../designer/schema/schema.ts'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
+import { useParsedTemplates } from '../Fit/templates'
 import { resolveTemplate, orderRules, describeResolution } from '../../designer/rules/resolveTemplate.ts'
 import { applyLive, cellKey } from './grid/cardFields'
 import { fieldsForType } from '../../cardModel/model'
@@ -14,27 +14,6 @@ const FIT_LABEL = {
   shrunk: (r) => `shrunk to ${r.pt} pt`,
   hidden: () => 'hidden (no room)',
   overflow: (r) => `overflows at ${r.pt} pt`,
-}
-
-// Parsed templates by row, re-parsed only when a row's version changes.
-const parsedCache = new Map()
-function parseRow(row) {
-  const key = `${row.id}:${row.version}:${row.updated_at}`
-  if (parsedCache.has(key)) return parsedCache.get(key)
-  let out
-  try {
-    const r = validateTemplate(JSON.parse(row.content))
-    out = r.ok ? { template: r.template } : { error: r.errors.join('; ') }
-  } catch (error) {
-    out = { error: error.message }
-  }
-  parsedCache.set(key, out)
-  return out
-}
-
-export function useParsedTemplates() {
-  const rows = useStore((s) => s.templates)
-  return useMemo(() => new Map(rows.map((r) => [r.id, { row: r, ...parseRow(r) }])), [rows])
 }
 
 /** The selected card, rendered live with the template its override or the rules pick. */
