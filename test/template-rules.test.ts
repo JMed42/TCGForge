@@ -36,7 +36,7 @@ test('a broken condition counts as false and is reported', () => {
   const res = resolveTemplate({ name: 'X' }, r, IDS)
   assert.equal(res.templateId, 3)
   assert.equal(res.errors.length, 2)
-  assert.match(res.errors[0], /^rule 1: /)
+  assert.match(res.errors[0], /^exception 1: /)
 })
 
 test('custom fields are visible to conditions', () => {
@@ -51,9 +51,19 @@ test('resolveAll, stats and descriptions', () => {
   ]
   const all = resolveAll(cards, rules, IDS)
   assert.deepEqual([...all.values()].map((r) => r.templateId), [7, 9, 3, 9])
-  assert.deepEqual(ruleStats(cards, rules, IDS), { perRule: [1, 1, 0], overrides: 1, defaults: 1, withErrors: 0 })
+  assert.deepEqual(ruleStats(cards, rules, IDS), { perRule: [1, 1, 0], overrides: 1, byType: 0, defaults: 1, withErrors: 0 })
   const name = (id: number) => `T${id}`
-  assert.equal(describeResolution(all.get(2)!, name), 'T9 (rule 2)')
+  assert.equal(describeResolution(all.get(2)!, name), 'T9 (exception 2)')
   assert.equal(describeResolution(all.get(3)!, name), 'T3 (default)')
   assert.equal(describeResolution(all.get(4)!, name), 'T9 (chosen for this card)')
+})
+
+test('card type default sits between exceptions and the project default', () => {
+  const unit = { type: 'Unit', cost: '1', card_type: 'Unit', card_type_template_id: 9 }
+  assert.deepEqual(resolveTemplate(unit, [], IDS), { templateId: 9, reason: 'type', errors: [], typeName: 'Unit' })
+  assert.equal(resolveTemplate({ ...unit, cost: '6' }, rules, IDS).reason, 'rule', 'an exception wins over the type default')
+  assert.equal(resolveTemplate({ ...unit, template_override_id: 3 }, rules, IDS).reason, 'override')
+  assert.equal(resolveTemplate({ ...unit, card_type_template_id: 42 }, [], IDS).reason, 'default', 'a deleted type template falls through')
+  assert.equal(describeResolution(resolveTemplate(unit, [], IDS), (id) => `T${id}`), 'T9 (from type Unit)')
+  assert.equal(ruleStats([unit], [], IDS).byType, 1)
 })

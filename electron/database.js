@@ -2,6 +2,8 @@ const path = require('path');
 const fs = require('fs');
 const { DB_FILE } = require('./legacyData');
 const { runMigrations } = require('./migrations');
+const cardModelLib = require('./cardModel');
+const { createCardModel, registerCardModelIpc } = cardModelLib;
 
 let db;
 let dbPath;
@@ -36,6 +38,11 @@ function run(sql, params = []) {
   const result = queryOne('SELECT last_insert_rowid() as id');
   saveDatabase();
   return result ? result.id : null;
+}
+
+// Run a statement without saving (inside inTransaction).
+function exec(sql, params = []) {
+  db.run(sql, params);
 }
 
 // Persist the in-memory database to disk
@@ -148,27 +155,32 @@ function normalizeCardData(data) {
 
 // Cards for a project, applying the Card Database filter object. Shared with the Card Designer
 // batch export so "export all" uses exactly the list the user sees.
+// Card rows carry their type's name and default template (card_type, card_type_template_id).
+const CARD_SELECT = `SELECT cards.*, card_types.name AS card_type, card_types.template_id AS card_type_template_id
+  FROM cards LEFT JOIN card_types ON card_types.id = cards.card_type_id`;
+
 function queryCards(projectId, filters = {}) {
-  let sql = 'SELECT * FROM cards WHERE project_id = ?';
+  let sql = `${CARD_SELECT} WHERE cards.project_id = ?`;
   const params = [projectId];
 
   if (filters.search) {
-    sql += ' AND (name LIKE ? OR rules_text LIKE ?)';
+    sql += ' AND (cards.name LIKE ? OR cards.rules_text LIKE ?)';
     params.push(`%${filters.search}%`, `%${filters.search}%`);
   }
-  if (filters.type)   { sql += ' AND type = ?';     params.push(filters.type); }
-  if (filters.set)    { sql += ' AND set_name = ?';  params.push(filters.set); }
-  if (filters.rarity) { sql += ' AND rarity = ?';   params.push(filters.rarity); }
+  if (filters.type)   { sql += ' AND cards.type = ?';     params.push(filters.type); }
+  if (filters.set)    { sql += ' AND cards.set_name = ?';  params.push(filters.set); }
+  if (filters.rarity) { sql += ' AND cards.rarity = ?';   params.push(filters.rarity); }
+  if (filters.cardTypeId) { sql += ' AND cards.card_type_id = ?'; params.push(Number(filters.cardTypeId)); }
   // Every requested tag must be one of the card's comma-separated tags (case-insensitive).
   for (const tag of tagList(filters.tags)) {
-    sql += " AND (',' || REPLACE(tags, ', ', ',') || ',') LIKE ? ESCAPE '\\'";
+    sql += " AND (',' || REPLACE(cards.tags, ', ', ',') || ',') LIKE ? ESCAPE '\\'";
     params.push(`%,${tag.replace(/[\\%_]/g, (c) => `\\${c}`)},%`);
   }
 
   const colMap = { name: 'name', type: 'type', set: 'set_name', cost: 'cost', created: 'created_at', updated: 'updated_at' };
   const sortCol = colMap[filters.sortBy] || 'name';
   const sortDir = filters.sortDir === 'DESC' ? 'DESC' : 'ASC';
-  sql += ` ORDER BY ${sortCol} ${sortDir}`;
+  sql += ` ORDER BY cards.${sortCol} ${sortDir}, cards.id`;
 
   return queryAll(sql, params);
 }
@@ -178,7 +190,7 @@ function getProject(id) {
 }
 
 function getCard(id) {
-  return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
+  return queryOne(`${CARD_SELECT} WHERE cards.id = ?`, [id]);
 }
 
 // ── TEMPLATES (Card Designer) ─────────────────────────────
@@ -208,6 +220,7 @@ function deleteTemplate(id) {
   inTransaction(() => {
     db.run('DELETE FROM template_rules WHERE template_id = ?', [id]);
     db.run('UPDATE cards SET template_override_id = NULL WHERE template_override_id = ?', [id]);
+    db.run('UPDATE card_types SET template_id = NULL WHERE template_id = ?', [id]);
     db.run('DELETE FROM templates WHERE id = ?', [id]);
   });
 }
@@ -229,32 +242,23 @@ function inTransaction(fn) {
 
 // ── CARD IMPORT ───────────────────────────────────────────
 // Planned rows from electron/import/cardImport.js buildPlan, written in one transaction.
-const IMPORT_FIELDS = ['name', 'type', 'set_name', 'rarity', 'cost', 'power', 'toughness',
-  'rules_text', 'flavor_text', 'tags', 'custom_fields', 'notes', 'image_path'];
+// Rows may carry card_type_id; creates without one get the project's first type.
 
 function importCards(projectId, planRows) {
   let created = 0;
   let updated = 0;
+  cardModel.ensureTypes(projectId);
   inTransaction(() => {
     for (const row of planRows) {
-      const data = normalizeCardData(row.data);
       if (row.action === 'create') {
-        db.run(
-          `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
-            rules_text, flavor_text, tags, custom_fields, notes, image_path)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [projectId, ...IMPORT_FIELDS.map((k) => (data[k] !== undefined ? data[k] : k === 'custom_fields' ? '{}' : ''))]
-        );
+        createCardRow(projectId, row.data, { inTransaction: true });
         created++;
       } else if (row.action === 'update') {
         const card = queryOne('SELECT project_id FROM cards WHERE id = ?', [row.cardId]);
         if (!card || card.project_id !== projectId) throw new Error(`card ${row.cardId} is not in this project`);
-        const keys = IMPORT_FIELDS.filter((k) => data[k] !== undefined);
-        if (!keys.length) continue;
-        db.run(
-          `UPDATE cards SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`,
-          [...keys.map((k) => data[k]), row.cardId]
-        );
+        const set = cardUpdateSql(projectId, normalizeCardData(row.data));
+        if (!set) continue;
+        db.run(`UPDATE cards SET ${set.sql} WHERE id = ?`, [...set.values, row.cardId]);
         updated++;
       }
     }
@@ -314,6 +318,70 @@ function applyAssetChanges(projectId, rows, removed = []) {
   });
 }
 
+// ── CARDS: shared write helpers ───────────────────────────
+
+const CARD_COLUMNS = ['name', 'type', 'set_name', 'rarity', 'cost', 'power', 'toughness',
+  'rules_text', 'flavor_text', 'tags', 'custom_fields', 'notes', 'image_path', 'template_override_id', 'card_type_id'];
+
+const cardModel = createCardModel({ queryAll, queryOne, exec, inTransaction });
+
+// SET clause for a (normalised) partial card of projectId, validating references.
+function cardUpdateSql(projectId, data) {
+  if (data.name !== undefined && !String(data.name).trim()) throw new Error('a card needs a name');
+  if (data.template_override_id) {
+    const tpl = getTemplate(data.template_override_id);
+    if (!tpl || tpl.project_id !== projectId) throw new Error('template override must be a template of the same project');
+  }
+  if (data.card_type_id !== undefined) {
+    const type = queryOne('SELECT project_id FROM card_types WHERE id = ?', [Number(data.card_type_id)]);
+    if (!type || type.project_id !== projectId) throw new Error('that card type is not in this project');
+    data.card_type_id = Number(data.card_type_id);
+  }
+  const keys = CARD_COLUMNS.filter((k) => data[k] !== undefined);
+  if (!keys.length) return null;
+  return { sql: [...keys.map((k) => `${k} = ?`), "updated_at = datetime('now')"].join(', '), values: keys.map((k) => data[k]) };
+}
+
+// Insert a card (input in UI or DB shape). Missing type: the project's first type. Fields the
+// input leaves out get the type's default values. Returns the new id.
+function createCardRow(projectId, input, { inTransaction: inTx = false, defaults: useDefaults = true } = {}) {
+  const firstType = inTx ? cardModel.listTypes(projectId)[0]?.id : cardModel.ensureTypes(projectId);
+  const typeId = input.card_type_id ? Number(input.card_type_id) : firstType;
+  const type = queryOne('SELECT project_id FROM card_types WHERE id = ?', [typeId]);
+  if (!type || type.project_id !== projectId) throw new Error('that card type is not in this project');
+  const defaults = useDefaults ? cardModel.defaultsFor(projectId, typeId) : { columns: {}, custom: {} };
+  let custom = input.custom_fields;
+  if (typeof custom === 'string') { try { custom = JSON.parse(custom || '{}'); } catch { custom = {}; } }
+  const data = normalizeCardData({ ...defaults.columns, ...input, custom_fields: { ...defaults.custom, ...(custom || {}) } });
+  if (!String(data.name || '').trim()) throw new Error('a card needs a name');
+  db.run(
+    `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
+      rules_text, flavor_text, tags, custom_fields, notes, image_path, card_type_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [projectId, data.name, data.type || '', data.set_name || '', data.rarity || '',
+     data.cost || '', data.power || '', data.toughness || '', data.rules_text || '',
+     data.flavor_text || '', data.tags || '', data.custom_fields || '{}',
+     data.notes || '', data.image_path || '', typeId]
+  );
+  const id = queryOne('SELECT last_insert_rowid() AS id').id;
+  if (!inTx) saveDatabase();
+  return id;
+}
+
+function bulkUpdateCards(projectId, changes) {
+  if (!Array.isArray(changes)) throw new Error('changes must be a list');
+  if (changes.length > 20000) throw new Error('too many changes at once');
+  const prepared = changes.map((c) => {
+    const card = queryOne('SELECT project_id FROM cards WHERE id = ?', [Number(c && c.id)]);
+    if (!card || card.project_id !== projectId) throw new Error(`card ${c && c.id} is not in this project`);
+    return { id: Number(c.id), set: cardUpdateSql(projectId, normalizeCardData(c.patch || {})) };
+  });
+  inTransaction(() => {
+    for (const p of prepared) if (p.set) db.run(`UPDATE cards SET ${p.set.sql} WHERE id = ?`, [...p.set.values, p.id]);
+  });
+  return prepared.map((p) => getCard(p.id));
+}
+
 function registerIpcHandlers(ipcMain) {
   // ── PROJECTS ──────────────────────────────────────────────
 
@@ -334,6 +402,8 @@ function registerIpcHandlers(ipcMain) {
       'INSERT INTO projects (name, description, card_schema) VALUES (?, ?, ?)',
       [String(data.name || ''), String(data.description || ''), schemaStr]
     );
+    // Starter card types: 'blank' (Name, Cost, Card text, Art) or 'classic' (the standard fields).
+    inTransaction(() => cardModel.applyStarter(id, data.starter === 'blank' ? 'blank' : 'classic'));
     return queryOne('SELECT * FROM projects WHERE id = ?', [id]);
   });
 
@@ -360,6 +430,8 @@ function registerIpcHandlers(ipcMain) {
     inTransaction(() => {
       db.run('DELETE FROM template_rules WHERE project_id = ?', [id]);
       db.run('DELETE FROM assets WHERE project_id = ?', [id]);
+      db.run('DELETE FROM card_types WHERE project_id = ?', [id]);
+      db.run('DELETE FROM card_fields WHERE project_id = ?', [id]);
       db.run('DELETE FROM templates WHERE project_id = ?', [id]);
       db.run('DELETE FROM projects WHERE id = ?', [id]);
     });
@@ -376,44 +448,29 @@ function registerIpcHandlers(ipcMain) {
   });
 
   ipcMain.handle('createCard', (_, projectId, input) => {
-    const data = normalizeCardData(input);
-    const id = run(
-      `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
-        rules_text, flavor_text, tags, custom_fields, notes, image_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [projectId, data.name, data.type || '', data.set_name || '', data.rarity || '',
-       data.cost || '', data.power || '', data.toughness || '', data.rules_text || '',
-       data.flavor_text || '', data.tags || '', data.custom_fields || '{}',
-       data.notes || '', data.image_path || '']
-    );
-    return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
+    return getCard(createCardRow(projectId, input));
   });
 
   ipcMain.handle('updateCard', (_, id, input) => {
     const data = normalizeCardData(input);
-    const allowed = ['name','type','set_name','rarity','cost','power','toughness',
-                     'rules_text','flavor_text','tags','custom_fields','notes','image_path','template_override_id'];
-    const fields = [];
-    const values = [];
-    for (const key of allowed) {
-      if (data[key] !== undefined) { fields.push(`${key} = ?`); values.push(data[key]); }
-    }
-    if (data.template_override_id) {
-      const card = queryOne('SELECT project_id FROM cards WHERE id = ?', [id]);
-      const tpl = getTemplate(data.template_override_id);
-      if (!card || !tpl || tpl.project_id !== card.project_id) throw new Error('template override must be a template of the same project');
-    }
-    if (fields.length === 0) return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
-    fields.push("updated_at = datetime('now')");
-    values.push(id);
-    run(`UPDATE cards SET ${fields.join(', ')} WHERE id = ?`, values);
-    return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
+    const card = queryOne('SELECT project_id FROM cards WHERE id = ?', [id]);
+    if (!card) throw new Error(`card ${id} not found`);
+    const set = cardUpdateSql(card.project_id, data);
+    if (!set) return getCard(id);
+    run(`UPDATE cards SET ${set.sql} WHERE id = ?`, [...set.values, id]);
+    return getCard(id);
   });
 
   // ── TEMPLATE RULES ────────────────────────────────────────
 
   ipcMain.handle('getTemplateRules', (_, projectId) => listTemplateRules(projectId));
   ipcMain.handle('saveTemplateRules', (_, projectId, rules) => saveTemplateRules(projectId, rules));
+
+  // changes: [{ id, patch }] for cards of projectId; one transaction, one save.
+  ipcMain.handle('bulkUpdateCards', (_, projectId, changes) => bulkUpdateCards(projectId, changes));
+
+  // ── CARD TYPES & FIELDS ───────────────────────────────────
+  registerCardModelIpc(ipcMain, cardModel);
 
   ipcMain.handle('deleteCard', (_, id) => {
     run('DELETE FROM cards WHERE id = ?', [id]);
@@ -428,13 +485,13 @@ function registerIpcHandlers(ipcMain) {
     if (!card) return null;
     const newId = run(
       `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
-        rules_text, flavor_text, tags, custom_fields, notes, image_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        rules_text, flavor_text, tags, custom_fields, notes, image_path, card_type_id, template_override_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [card.project_id, card.name + ' (Copy)', card.type, card.set_name, card.rarity,
        card.cost, card.power, card.toughness, card.rules_text, card.flavor_text,
-       card.tags, card.custom_fields, card.notes, card.image_path]
+       card.tags, card.custom_fields, card.notes, card.image_path, card.card_type_id, card.template_override_id]
     );
-    return queryOne('SELECT * FROM cards WHERE id = ?', [newId]);
+    return getCard(newId);
   });
 
   // ── DOCUMENTS ─────────────────────────────────────────────
@@ -503,7 +560,12 @@ function registerIpcHandlers(ipcMain) {
     const project   = queryOne('SELECT * FROM projects WHERE id = ?', [projectId]);
     const cards     = queryAll('SELECT * FROM cards WHERE project_id = ?', [projectId]);
     const documents = queryAll('SELECT * FROM documents WHERE project_id = ?', [projectId]);
-    return JSON.stringify({ project, cards, documents }, null, 2);
+    const { fields, types } = cardModel.getModel(projectId);
+    const cardModelOut = {
+      fields: fields.map(({ key, label, kind, options, default_value, help }) => ({ key, label, kind, options, default_value, help })),
+      types: types.map(({ id, name, color, sort_order, field_keys }) => ({ id, name, color, sort_order, field_keys })),
+    };
+    return JSON.stringify({ project, cardModel: cardModelOut, cards, documents }, null, 2);
   });
 
   ipcMain.handle('importProject', (_, jsonData) => {
@@ -524,18 +586,32 @@ function registerIpcHandlers(ipcMain) {
       idMap[doc.id] = newDocId;
     }
 
-    for (const rawCard of (data.cards || [])) {
-      const card = normalizeCardData(rawCard);
-      run(
-        `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
-          rules_text, flavor_text, tags, custom_fields, notes, image_path)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newProjectId, card.name, card.type || '', card.set_name || '', card.rarity || '',
-         card.cost || '', card.power || '', card.toughness || '', card.rules_text || '',
-         card.flavor_text || '', card.tags || '', card.custom_fields || '{}',
-         card.notes || '', card.image_path || '']
-      );
+    // Card model: recreate fields and types; files without one get the classic starter.
+    const typeMap = {};
+    const model = data.cardModel;
+    if (model && Array.isArray(model.types) && model.types.length) {
+      inTransaction(() => {
+        for (const fdef of model.fields || []) {
+          if (!fdef || cardModelLib.checkKey(String(fdef.key))) continue;
+          const kind = cardModelLib.allowedKinds(fdef.key).includes(fdef.kind) ? fdef.kind : cardModelLib.allowedKinds(fdef.key)[0];
+          db.run('INSERT OR IGNORE INTO card_fields (project_id, key, label, kind, options, default_value, help) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [newProjectId, fdef.key, String(fdef.label || fdef.key), kind, JSON.stringify(Array.isArray(fdef.options) ? fdef.options : []), String(fdef.default_value || ''), String(fdef.help || '')]);
+        }
+        const known = new Set(queryAll('SELECT key FROM card_fields WHERE project_id = ?', [newProjectId]).map((r) => r.key));
+        model.types.forEach((t, i) => {
+          const keys = (Array.isArray(t.field_keys) ? t.field_keys : []).filter((k) => known.has(k));
+          db.run('INSERT INTO card_types (project_id, name, color, sort_order, field_keys) VALUES (?, ?, ?, ?, ?)',
+            [newProjectId, String(t.name || `Type ${i + 1}`), String(t.color || '#7c6ef0'), i, JSON.stringify([...new Set(keys)])]);
+          typeMap[t.id] = queryOne('SELECT last_insert_rowid() AS id').id;
+        });
+      });
     }
+    const firstType = cardModel.ensureTypes(newProjectId);
+    inTransaction(() => {
+      for (const rawCard of (data.cards || [])) {
+        createCardRow(newProjectId, { ...rawCard, card_type_id: typeMap[rawCard.card_type_id] || firstType }, { inTransaction: true, defaults: false });
+      }
+    });
 
     return queryOne('SELECT * FROM projects WHERE id = ?', [newProjectId]);
   });
@@ -555,7 +631,8 @@ function registerIpcHandlers(ipcMain) {
 }
 
 module.exports = {
-  initDatabase, registerIpcHandlers, queryCards, getCard, getProject, tagList, normalizeCardData,
+  initDatabase, registerIpcHandlers, queryCards, getCard, getProject, queryAll, queryOne, exec, bulkUpdateCards, createCardRow,
+  getCardModelApi: () => cardModel, tagList, normalizeCardData,
   listTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
   listTemplateRules, saveTemplateRules, listAssets, applyAssetChanges, inTransaction, importCards,
 };

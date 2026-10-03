@@ -7,6 +7,20 @@
 const fs = require('fs');
 const templates = require('./cardDesigner/templates');
 const { convertLegacyTemplate, isLegacyTemplate } = require('./cardDesigner/convertLegacyTemplate');
+const cardModel = require('./cardModel');
+
+// Rows of a query on the raw sql.js database (migrations run before the helpers exist).
+function rows(db, sql, params = []) {
+  const res = db.exec(sql, params);
+  if (!res.length) return [];
+  const { columns, values } = res[0];
+  return values.map((v) => Object.fromEntries(columns.map((c, i) => [c, v[i]])));
+}
+
+const labelFromKey = (key) => {
+  const s = key.replace(/_+/g, ' ').trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
 
 const MIGRATIONS = [
   {
@@ -103,6 +117,66 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_assets_project ON assets(project_id, kind);
       `);
       db.run('ALTER TABLE cards ADD COLUMN template_override_id INTEGER');
+    },
+  },
+  {
+    version: 5,
+    name: 'card types and fields',
+    // The project's own data model (electron/cardModel.js). Every project gets one type, "Card",
+    // with today's standard fields plus the custom fields its cards actually hold, and every card
+    // is assigned to it. No card data moves.
+    up(db, { log }) {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS card_fields (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id     INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          key            TEXT NOT NULL,
+          label          TEXT NOT NULL,
+          kind           TEXT NOT NULL DEFAULT 'text',
+          options        TEXT NOT NULL DEFAULT '[]',
+          default_value  TEXT NOT NULL DEFAULT '',
+          help           TEXT NOT NULL DEFAULT '',
+          created_at     TEXT DEFAULT (datetime('now')),
+          UNIQUE (project_id, key)
+        );
+        CREATE TABLE IF NOT EXISTS card_types (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          name         TEXT NOT NULL,
+          color        TEXT NOT NULL DEFAULT '#7c6ef0',
+          sort_order   INTEGER NOT NULL DEFAULT 0,
+          template_id  INTEGER REFERENCES templates(id) ON DELETE SET NULL,
+          field_keys   TEXT NOT NULL DEFAULT '[]',
+          created_at   TEXT DEFAULT (datetime('now')),
+          updated_at   TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_card_types_project ON card_types(project_id, sort_order);
+      `);
+      db.run('ALTER TABLE cards ADD COLUMN card_type_id INTEGER');
+      for (const { id: projectId } of rows(db, 'SELECT id FROM projects')) {
+        const used = new Map(); // custom key -> sample values
+        for (const c of rows(db, 'SELECT custom_fields FROM cards WHERE project_id = ?', [projectId])) {
+          let data;
+          try { data = JSON.parse(c.custom_fields || '{}'); } catch { continue; }
+          if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+          for (const [k, v] of Object.entries(data)) {
+            if (v === null || v === '' || typeof v === 'object') continue;
+            if (cardModel.checkKey(k) || cardModel.STANDARD_KEYS.has(k)) continue; // not bindable: left as stored values
+            if (!used.has(k)) used.set(k, []);
+            used.get(k).push(v);
+          }
+        }
+        const insert = (f) => db.run('INSERT INTO card_fields (project_id, key, label, kind, options, default_value, help) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [projectId, f.key, f.label, f.kind, JSON.stringify(f.options || []), '', f.help || '']);
+        const keys = [];
+        for (const f of cardModel.STANDARD_FIELDS) { insert(f); keys.push(f.key); }
+        for (const [k, vals] of used) { insert({ key: k, label: labelFromKey(k), kind: cardModel.inferKind(vals) }); keys.push(k); }
+        db.run('INSERT INTO card_types (project_id, name, color, sort_order, field_keys) VALUES (?, ?, ?, 0, ?)',
+          [projectId, 'Card', cardModel.DEFAULT_COLORS[0], JSON.stringify(keys)]);
+        const typeId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+        db.run('UPDATE cards SET card_type_id = ? WHERE project_id = ?', [typeId, projectId]);
+        log(`project ${projectId}: card type "Card" with ${keys.length} fields${used.size ? ` (custom: ${[...used.keys()].join(', ')})` : ''}`);
+      }
     },
   },
 ];

@@ -31,6 +31,17 @@ contextBridge.exposeInMainWorld('api', {
   importProject: (jsonData) => ipcRenderer.invoke('importProject', jsonData),
   exportCards: (projectId, format) => ipcRenderer.invoke('exportCards', projectId, format),
 
+  // Card types and fields (the project's data model)
+  getCardModel: (projectId) => ipcRenderer.invoke('getCardModel', projectId),
+  saveCardField: (projectId, field) => ipcRenderer.invoke('saveCardField', projectId, field),
+  renameCardField: (projectId, oldKey, newKey, rewrites) => ipcRenderer.invoke('renameCardField', projectId, oldKey, newKey, rewrites),
+  deleteCardField: (projectId, key, options) => ipcRenderer.invoke('deleteCardField', projectId, key, options),
+  cardFieldValueCount: (projectId, key) => ipcRenderer.invoke('cardFieldValueCount', projectId, key),
+  saveCardType: (projectId, type) => ipcRenderer.invoke('saveCardType', projectId, type),
+  deleteCardType: (projectId, typeId, options) => ipcRenderer.invoke('deleteCardType', projectId, typeId, options),
+  reorderCardTypes: (projectId, ids) => ipcRenderer.invoke('reorderCardTypes', projectId, ids),
+  bulkUpdateCards: (projectId, changes) => ipcRenderer.invoke('bulkUpdateCards', projectId, changes),
+
   // Assets index
   getAssets: (projectId, kind) => ipcRenderer.invoke('getAssets', projectId, kind),
   getMissingArt: (projectId) => ipcRenderer.invoke('getMissingArt', projectId),

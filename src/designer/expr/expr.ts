@@ -325,6 +325,59 @@ export function evaluate(src: string, scope: Scope): EvalResult {
   }
 }
 
+/**
+ * Rename a field in a bare expression: identifier tokens equal to `from` that are not function
+ * calls. String literals, function names and spacing are untouched. Source that doesn't tokenize
+ * is returned unchanged.
+ */
+export function renameIdentifier(src: string, from: string, to: string): string {
+  let toks: Tok[]
+  try { toks = tokenize(src) } catch { return src }
+  let out = ''
+  let last = 0
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i]
+    if (t.t !== 'id' || t.v !== from) continue
+    const after = toks[i + 1]
+    if (after && after.t === 'op' && after.v === '(') continue
+    out += src.slice(last, t.pos) + to
+    last = t.pos + t.v.length
+  }
+  return out + src.slice(last)
+}
+
+/** renameIdentifier inside every "{{ … }}" span of a template string; literal text is untouched. */
+export function renameInTemplateText(text: string, from: string, to: string): string {
+  if (!text.includes('{{')) return text
+  let out = ''
+  let i = 0
+  while (i < text.length) {
+    if (text.startsWith('{{', i)) {
+      let j = i + 2
+      let quote: string | null = null
+      while (j < text.length) {
+        const c = text[j]
+        if (quote) {
+          if (c === '\\') { j += 2; continue }
+          if (c === quote) quote = null
+        } else if (c === '"' || c === "'") {
+          quote = c
+        } else if (text.startsWith('}}', j)) {
+          break
+        }
+        j++
+      }
+      if (j < text.length) {
+        out += `{{${renameIdentifier(text.slice(i + 2, j), from, to)}}}`
+        i = j + 2
+        continue
+      }
+    }
+    out += text[i++]
+  }
+  return out
+}
+
 // Find "{{ … }}" spans, skipping "}}" inside string literals. Unclosed "{{" stays literal.
 export function splitTemplate(text: string): Array<{ lit: string } | { expr: string }> {
   const parts: Array<{ lit: string } | { expr: string }> = []

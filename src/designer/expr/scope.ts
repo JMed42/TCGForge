@@ -6,7 +6,7 @@ import type { Scope, Value } from './expr.ts'
 
 export const CARD_COLUMNS = [
   'id', 'name', 'type', 'set_name', 'rarity', 'cost', 'power', 'toughness',
-  'rules_text', 'flavor_text', 'tags', 'image_path', 'notes',
+  'rules_text', 'flavor_text', 'tags', 'image_path', 'notes', 'card_type',
 ] as const
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/

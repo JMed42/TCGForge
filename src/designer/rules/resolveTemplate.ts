@@ -1,7 +1,8 @@
-// Which template a card uses (spec: template_rules, cards.template_override_id).
-//   1. the card's template_override_id, when that template exists
-//   2. the first rule (by priority) whose condition is true for the card and whose template exists
-//   3. the project default: the template with the lowest id
+// Which template a card uses ("Template assignment").
+//   1. the card's own choice (template_override_id), when that template exists
+//   2. the first exception (template_rules, by priority) whose condition is true for the card
+//   3. the card type's default template (card_types.template_id, joined as card_type_template_id)
+//   4. the project default: the template with the lowest id
 // Conditions are bare expressions in the sandboxed language; an empty condition always matches,
 // and one that fails to evaluate counts as false and is reported.
 
@@ -15,18 +16,20 @@ export interface TemplateRule {
   template_id: number
 }
 
-export type ResolveReason = 'override' | 'rule' | 'default' | 'none'
+export type ResolveReason = 'override' | 'rule' | 'type' | 'default' | 'none'
 
 export interface Resolution {
   templateId: number | null
   reason: ResolveReason
   /** index into the priority-ordered rules when reason === 'rule' */
   ruleIndex?: number
-  /** expression errors met on the way, "rule 2: unknown function foo" */
+  /** expression errors met on the way, "exception 2: unknown function foo" */
   errors: string[]
+  /** the card's type name when reason === 'type' */
+  typeName?: string
 }
 
-type Card = Record<string, unknown> & { template_override_id?: unknown }
+type Card = Record<string, unknown> & { template_override_id?: unknown; card_type_template_id?: unknown; card_type?: unknown }
 
 export function orderRules(rules: TemplateRule[]): TemplateRule[] {
   return rules
@@ -50,8 +53,12 @@ export function resolveTemplate(card: Card, rules: TemplateRule[], templateIds: 
     const rule = rules[i]
     if (!known.has(rule.template_id)) continue
     const c = condition(rule.condition_expr, scope)
-    if (c.error) errors.push(`rule ${i + 1}: ${c.error}`)
+    if (c.error) errors.push(`exception ${i + 1}: ${c.error}`)
     if (c.value) return { templateId: rule.template_id, reason: 'rule', ruleIndex: i, errors }
+  }
+  const typeTemplate = Number(card.card_type_template_id)
+  if (Number.isInteger(typeTemplate) && known.has(typeTemplate)) {
+    return { templateId: typeTemplate, reason: 'type', errors, typeName: String(card.card_type ?? '') }
   }
   const fallback = defaultTemplateId(templateIds)
   return { templateId: fallback, reason: fallback === null ? 'none' : 'default', errors }
@@ -69,22 +76,25 @@ export function ruleStats(cards: Card[], rules: TemplateRule[], templateIds: num
   const ordered = orderRules(rules)
   const perRule = ordered.map(() => 0)
   let overrides = 0
+  let byType = 0
   let defaults = 0
   let withErrors = 0
   for (const c of cards) {
     const r = resolveTemplate(c, ordered, templateIds)
     if (r.reason === 'rule') perRule[r.ruleIndex!]++
     else if (r.reason === 'override') overrides++
+    else if (r.reason === 'type') byType++
     else defaults++
     if (r.errors.length) withErrors++
   }
-  return { perRule, overrides, defaults, withErrors }
+  return { perRule, overrides, byType, defaults, withErrors }
 }
 
 export function describeResolution(r: Resolution, templateName: (id: number) => string): string {
   if (r.templateId === null) return 'No template'
   const name = templateName(r.templateId)
   if (r.reason === 'override') return `${name} (chosen for this card)`
-  if (r.reason === 'rule') return `${name} (rule ${r.ruleIndex! + 1})`
+  if (r.reason === 'rule') return `${name} (exception ${r.ruleIndex! + 1})`
+  if (r.reason === 'type') return `${name} (from type ${r.typeName || '?'})`
   return `${name} (default)`
 }
