@@ -2,7 +2,7 @@
 
 (Formerly TCG Studio.)
 
-Snapshot of the codebase as of Card Designer Phase 2 (2026-10), built against the original
+Snapshot of the codebase as of Card Designer Phase 2 + Phase 1b (2026-10), built against the original
 6-phase spec in docs/card-designer-spec.md. Describes what the code actually does.
 
 ## Stack
@@ -29,6 +29,8 @@ Snapshot of the codebase as of Card Designer Phase 2 (2026-10), built against th
 │                          .tcgtemplate + IPC         │
 │ electron/renderWindow.js hidden export window       │
 │ electron/assets.js       tcg-asset:// + file watch  │
+│ electron/assetIndex.js   assets table, missing art  │
+│ electron/import/         CSV/XLSX card import + IPC │
 └───────────────▲─────────────────────────────────────┘
                 │ ipcRenderer.invoke / ipcMain.handle
 ┌───────────────┴── preload (electron/preload.js) ────┐
@@ -44,7 +46,7 @@ Snapshot of the codebase as of Card Designer Phase 2 (2026-10), built against th
 - `contextIsolation: true`, `nodeIntegration: false`. The renderer has no Node access; everything goes through `window.api`.
 - Dev: `npm run dev` runs Vite on :5173 and Electron (`wait-on` then `electron .`). DevTools auto-open in dev.
 - Prod: `vite build` → `dist/`, loaded with `loadFile`. `electron-builder` packages `dist/**` and `electron/**`.
-- Startup order: `app.whenReady` → legacy-data copy → `await initDatabase(userData)` (runs migrations) → `registerIpcHandlers` → `registerCardDesignerIpc` → `createWindow`. If DB init fails, the app quits.
+- Startup order: `app.whenReady` → legacy-data copy → `await initDatabase(userData)` (runs migrations) → asset protocol, asset index and file watcher → `registerIpcHandlers` → `registerCardDesignerIpc` → `registerImportIpc` → `createWindow`. If DB init fails, the app quits.
 - Closing the window goes through an unsaved-changes guard. Once the renderer has registered its listener (`closeGuardReady`), `close` is intercepted, the renderer is asked (`app-close-requested`), and it calls `confirmClose`. The guard is dropped on reload or if the renderer dies, so a broken page can't block closing.
 
 ## Data layer (`electron/database.js`)
@@ -55,8 +57,9 @@ Snapshot of the codebase as of Card Designer Phase 2 (2026-10), built against th
 - The base schema (version 0) is created with `CREATE TABLE IF NOT EXISTS` in `initDatabase`. Later changes are **migrations** in `electron/migrations.js`, tracked with `PRAGMA user_version`.
   - Pending steps run in one transaction, and a failure rolls back and stops startup.
   - Before the first change, the file is copied to `tcgforge.db.bak-v{N}`.
-  - Append new migrations; never edit a shipped one. Current: v1 `templates` table; v2 one-time import of Phase 0 template files; v3 template schema v1 (pixel templates converted, originals kept in `legacy_content`, `version` column).
-- Foreign keys are off (sql.js default). Cascades are done by hand: `deleteProject` removes cards, documents and templates, and `deleteDocument` is recursive.
+  - Append new migrations; never edit a shipped one. Current: v1 `templates` table; v2 one-time import of Phase 0 template files; v3 template schema v1 (pixel templates converted, originals kept in `legacy_content`, `version` column); v4 `template_rules`, `assets`, `cards.template_override_id`.
+- Multi-statement writes (rule lists, imports, asset index updates, deletes) go through `inTransaction(fn)`: one transaction, one save.
+- Foreign keys are off (sql.js default). Cascades are done by hand: `deleteProject` removes cards, documents, templates, rules and asset rows; `deleteTemplate` removes its rules and clears card overrides that point at it; `deleteDocument` is recursive.
 
 ### Schema
 
@@ -66,6 +69,10 @@ Snapshot of the codebase as of Card Designer Phase 2 (2026-10), built against th
 | `cards` | `project_id`, `name`, `type`, `set_name`, `rarity`, `cost`, `power`, `toughness`, `rules_text`, `flavor_text`, `tags` (comma string), `custom_fields` TEXT (JSON object), `notes`, `image_path` |
 | `documents` | `project_id`, `parent_id` (self-tree), `title`, `type` (`folder`/`document`/`rule`), `content` (HTML), `sort_order` |
 | `templates` | `project_id`, `name`, `content` TEXT (schema v1 JSON), `version` (bumps on save), `legacy_content` (pre-v3 JSON) |
+| `template_rules` | `project_id`, `priority` (0 first), `condition_expr` (bare expression; empty = always), `template_id` |
+| `assets` | `project_id`, `rel_path` (unique per project), `kind` (art/icon/font/frame/other), `sha256`, `width`, `height`, `size`, `mtime` |
+
+`cards` also has `template_override_id` (v4, nullable): a card's own template choice, which beats every rule.
 
 All stat-like card fields (`cost`, `power`, `toughness`) are TEXT. JSON columns come back to the renderer as **strings**, and nothing parses them centrally.
 
@@ -88,7 +95,7 @@ All stat-like card fields (`cost`, `power`, `toughness`) are TEXT. JSON columns 
 
 ## Card Designer module
 
-Built against docs/card-designer-spec.md (the original 6-phase spec). Phase 2 (Template Designer) is complete, along with the Phase 1 foundations it needs: schema v1, the DOM renderer, `{{ }}` bindings, `visibleIf`, and `tcg-asset://` with file watching.
+Built against docs/card-designer-spec.md (the original 6-phase spec). Phase 1 (renderer and live preview, including "Phase 1b": Cards preview, template rules, CSV/XLSX import, assets index) and Phase 2 (Template Designer) are complete.
 
 ```
 src/designer/                      engine (TypeScript)
@@ -99,7 +106,17 @@ src/designer/                      engine (TypeScript)
   render/RenderHost.tsx            #render route used by the hidden export window
   render/fitText.ts, markup.ts, assetUrl.ts, useProjectFonts.ts
   editor/ops.ts, geometry.ts       pure template edits and mm geometry
+  rules/resolveTemplate.ts         override -> first matching rule -> default template
 src/designerSlice.js               editor state (draft, history, selection, guard, assets)
+src/cardsSlice.js                  Cards screen state (active card, liveEdit, cell undo, rules, missing art)
+src/components/CardDatabase.jsx    Cards screen: grid left, live preview right
+src/components/Cards/
+  CardTable.jsx                    spreadsheet grid (cell cursor, in-place edit, columns menu)
+  grid/cardFields.js, liveTiming.js  cell get/set, cell history; edit-to-paint timing
+  CardPreviewPane.jsx              live CardRender of the active card + fit/warnings
+  TemplateRulesDialog.jsx          rule list with live match counts
+  ImportDialog.jsx                 file -> mapping -> plan + live render -> import
+  MissingArtBanner.jsx             missing-art report and filter
 src/components/CardDesigner/
   DesignerView.jsx                 layout, toolbar (undo/redo/discard/save, exports)
   DesignerCanvas.jsx               zoom/pan, guides, select/drag/resize/snap, align, group
@@ -111,7 +128,10 @@ src/components/CardDesigner/
 electron/
   renderWindow.js                  hidden offscreen window: capturePage (PNG/JPEG), printToPDF
   assets.js                        tcg-asset:// protocol, path guard, fs.watch
-  migrations.js                    v1-v3
+  migrations.js                    v1-v4
+  assetIndex.js, imageSize.js      assets table (scan + watcher), image header sizes, missing art
+  import/csv.js, xlsx.js           CSV (RFC 4180, encodings) and .xlsx (zip + XML) readers, no deps
+  import/cardImport.js, ipc.js     header mapping, create/update/skip plan, IPC
   cardDesigner/ipc.js              template CRUD, exports, sheets, art, .tcgtemplate
   cardDesigner/sheets.js           print-sheet layout (mm) and pages
   cardDesigner/tcgtemplate.js      .tcgtemplate build / parse / install
@@ -153,6 +173,26 @@ electron/
 - Moving, resizing, grouping, ungrouping and moving between containers keep each layer's position and anchoring (`frameFromRect`). Changing the card size reflows through the frames.
 - `guardUnsaved(proceed)` wraps template switch, create and import, project switch, and window close.
 
+**Cards screen (live loop)**
+- The grid keeps a cell cursor (arrows, Tab, Enter, Home/End). Enter, F2, double-click or typing opens an in-place editor; Enter/Tab/blur commit, Esc cancels, Delete clears, Ctrl+Z/Ctrl+Y undo and redo committed cell edits.
+- While typing, the value lives in `store.liveEdit` and the preview renders `applyLive(card, liveEdit)` with no database round-trip. Commit writes one field through `updateCard` and swaps the row in place (no list reload).
+- Edit-to-paint time is measured from the input event's timestamp to the first task after the frame that shows it (`grid/liveTiming.js`); measured p50 ≈ 10 ms, p95 ≈ 16 ms on the longest card. The preview also lists each text layer that shrank or overflows.
+- Components subscribe with selectors, so a keystroke re-renders the preview, not the whole grid.
+
+**Template rules**
+- `resolveTemplate` (TypeScript, in the renderer) picks override → first rule in priority order whose condition is true → default (lowest template id). Conditions use the same sandboxed evaluator as bindings; an error counts as false and is reported.
+- The main process has no TS engine, so exports with `templateId: 'auto'` ask the hidden render window to resolve (`RenderService.resolveTemplates`, a `resolve` job in `RenderHost`).
+- Print sheets by rules group cards by card size; each group gets its own layout and pages, and each page carries its own paper size (named CSS `@page` rules), so orientations can differ within one PDF.
+
+**Import (CSV/XLSX)**
+- Read in the main process. CSV: quoted fields, embedded newlines, `,`/`;`/tab detection, UTF-8/UTF-16 BOMs and a Windows-1252 fallback. XLSX: a small zip reader (stored/deflate, size and entry caps, no zip64 or encryption) and an XML scanner (shared/inline/rich strings, numbers, booleans, cached formula values, date number formats → ISO dates).
+- Headers map to fields by exact name, then existing custom field, then alias ("ATK" → power, "Text" → rules_text…), else a new custom field key. The plan marks each row create / update (same name, case-insensitive) / skip (no name, duplicate in file). Blank cells are left alone unless "Blank cells clear fields" is on.
+- The file is held under a one-time token; preview never writes; commit is one transaction.
+
+**Assets index**
+- `assets` rows mirror image and font files under `assets/` and `templates/assets/`. A project is scanned the first time it is asked for, then the watcher re-indexes single paths. An unchanged size + mtime keeps the stored hash.
+- `getMissingArt` lists cards whose non-empty `image_path` doesn't resolve and template image layers whose literal `src` doesn't. The Cards screen shows it as a banner with a filter.
+
 **Print sheets**
 - The layout uses the card's physical size, a 6.35 mm margin and the bleed, in whichever orientation fits more cards.
 - For 63×88 mm cards: Letter fits 9 without bleed and 6 with 3 mm; A4 fits 9 and 8. Crop marks extend the trim lines into the margin.
@@ -177,7 +217,8 @@ The DB stores `tags` as one comma-separated TEXT value and `custom_fields` / `ca
 2. The card editor's custom-fields section never renders: its schema lookup is stubbed to `[]`. Existing `custom_fields` values are preserved on save.
 3. `index.css` scrollbar rules reference `--color-surface-*` CSS variables that are never defined.
 4. There's no linter. Tests use Node's built-in runner: `npm test`.
-5. The native file dialogs (card art, exports, print sheets, .tcgtemplate) couldn't be driven by automation. The code behind them is tested through the dialog-free IPC variants.
+5. The native file dialogs (card art, exports, print sheets, .tcgtemplate) couldn't be driven by automation. The code behind them is tested through the dialog-free IPC variants. The import dialog uses a file input (path via `webUtils.getPathForFile`), which automation can drive.
 6. Template images and fonts are added by putting files in `{project}/assets/…` (they appear immediately); there is no upload button yet. Export Project doesn't include templates or art yet.
-7. Not built yet from the spec's Phase 1 ("Phase 1b"): `template_rules`, the Cards-screen preview pane, CSV/XLSX import, the `assets` table, `cards.template_override_id`.
+7. Import limits: .xls (pre-2007) isn't read; formulas use the value Excel cached; workbooks in the 1904 date system get dates 4 years early; 20,000 rows, 500 columns and 50 MB per file.
 8. Tiled backgrounds can differ very slightly between the editor (GPU) and exports (software raster) at non-integer scales; everything else matches pixel for pixel.
+9. The Cards grid has no fill-down or multi-cell paste yet, and no fit-status column. Those belong with the spec's "spreadsheet-grade table" and Phase 3 (fit engine).

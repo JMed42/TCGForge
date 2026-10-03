@@ -5,7 +5,8 @@ A lightweight desktop app for trading card game developers. Manage cards, write 
 ## Features
 
 - **Multi-Project Support** — Switch between unlimited game projects, each with their own cards and documents
-- **Card Database Manager** — Full CRUD with filtering, sorting, tagging, bulk operations, and custom fields
+- **Card Database Manager** — Spreadsheet-style grid (arrow keys, type to edit, undo) with a live render of the selected card beside it, filtering, sorting, tagging, bulk operations and custom fields. Import cards from CSV or Excel (.xlsx) with column mapping and a preview before anything is written.
+- **Template Rules** — Pick each card's template by rule (`type == "Unit"` → Unit frame), or choose one per card. Batch exports and print sheets can follow the rules.
 - **Rules & GDD Editor** — Rich text editor with document tree, folder organization, rule tagging, and cross-referencing
 - **Card Designer** — Visual template designer: zoom and pan, bleed/trim/safe guides, drag, resize, snapping, multi-select, align and distribute, groups and auto-layout stacks, a layer tree, and a properties panel with a binding picker (`{{name}}`, `{{upper(name)}}`, `visibleIf` conditions). Layouts are anchored in mm, so changing the card size reflows them. Step through real cards while you design. Export PNG (any dpi), vector PDF, all cards at once, or print-and-play sheets (Letter/A4, bleed, crop marks). Share templates as `.tcgtemplate` files. What the editor shows is what exports.
 - **Card Art** — Attach art in the card editor. Images are copied into the project.
@@ -65,6 +66,8 @@ TCGForge/
 │   ├── database.js      # SQLite operations
 │   ├── renderWindow.js  # hidden export window (PNG/PDF from the same renderer)
 │   ├── assets.js        # tcg-asset:// protocol and file watching
+│   ├── assetIndex.js    # assets table and missing-art report
+│   ├── import/          # CSV/XLSX card import
 │   └── cardDesigner/    # templates, exports, print sheets, .tcgtemplate
 ├── scripts/             # dev seed data for a throwaway profile
 ├── src/
@@ -92,9 +95,13 @@ On first launch, data from the app's previous name (TCG Studio: `%APPDATA%\tcg-s
 The schema includes:
 
 - **projects** — Name, description, custom card schema (JSON)
-- **cards** — Name, type, set, rarity, cost, power, toughness, rules text, flavor text, tags, custom fields
+- **cards** — Name, type, set, rarity, cost, power, toughness, rules text, flavor text, tags, custom fields, optional template override
+- **templates** / **template_rules** — Card layouts (JSON) and the rules that pick one per card
+- **assets** — Index of the image and font files in each project folder
 - **documents** — Hierarchical tree (folders, documents, rules) with rich text content
 
 ## Import/Export
 
 Export any project as a complete JSON file including all cards and documents. Import JSON files to create new projects from shared data.
+
+On the Cards screen, **Import…** reads a `.csv`, `.tsv` or `.xlsx` file: choose the sheet, map each column to a card field or custom field, check what each row will do (new, update by name, or skipped and why) with a live render, then import.
