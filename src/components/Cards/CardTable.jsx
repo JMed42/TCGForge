@@ -6,8 +6,8 @@ import { markEdit } from './grid/liveTiming';
 import { gridColumns, makeApplicable, useFilteredCards } from './grid/columns';
 import { inRange, parseCellValue, parseTsv, planClear, planFillDown, planPaste, rangeOf, toTsv } from './grid/gridOps';
 import { isNumeric } from '../../cardModel/model';
-import { FitCell, FitProgress } from '../Fit/FitStatus';
-import { plainFitOf, summaryOf, useLayerLabels } from '../Fit/useFit';
+import { FitCell, FitLine, FitProgress } from '../Fit/FitStatus';
+import { plainFitOf, summaryOf, useFieldFits, useLayerLabels } from '../Fit/useFit';
 import { compareHardness, shortFit } from '../../designer/fit/summary.ts';
 
 // The Database tab: every card in a spreadsheet grid, columns from the card types' fields.
@@ -42,14 +42,16 @@ function CellDisplay({ card, col, types, labels }) {
   return <span className="text-text-secondary">{value.replace(/\s*\n\s*/g, ' ⏎ ')}</span>;
 }
 
-// In-place editor. Typing renders live in the preview (store.liveEdit); Enter / Tab / blur
-// commit, Escape cancels. Choice and card-type cells suggest their options.
+// In-place editor. Typing renders live in the preview (store.liveEdit), with the fit budget of the
+// text that shows this field below it; Enter / Tab / blur commit, Escape cancels. Choice and
+// card-type cells suggest their options.
 function CellEditor({ card, col, initial, onDone }) {
   const [value, setValue] = useState(initial);
   const ref = useRef(null);
   const done = useRef(false);
   const multiline = col.kind === 'longText';
   const listId = col.options.length ? `opts-${col.key}` : undefined;
+  const fits = useFieldFits(card.id).get(col.key === 'name' ? 'name' : col.fieldKey) || [];
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -80,13 +82,13 @@ function CellEditor({ card, col, initial, onDone }) {
   };
   const Tag = multiline ? 'textarea' : 'input';
   return (
-    <>
+    <div className="absolute left-0 top-0 z-20 w-full min-w-[160px]">
       <Tag
         ref={ref}
         data-testid="cell-editor"
         rows={multiline ? 1 : undefined}
         list={listId}
-        className="absolute left-0 top-0 z-20 w-full min-w-[160px] px-2 py-1.5 bg-surface-0 border-2 border-accent rounded text-sm text-text-primary focus:outline-none resize-none shadow-lg"
+        className="block w-full px-2 py-1.5 bg-surface-0 border-2 border-accent rounded text-sm text-text-primary focus:outline-none resize-none shadow-lg"
         value={value}
         spellCheck={false}
         onChange={onChange}
@@ -94,7 +96,16 @@ function CellEditor({ card, col, initial, onDone }) {
         onBlur={() => finish(true, null)}
       />
       {listId && <datalist id={listId}>{col.options.map((o) => <option key={o} value={o} />)}</datalist>}
-    </>
+      {fits.length > 0 && (
+        <div
+          data-testid="cell-fit-budget"
+          className="mt-0.5 w-max min-w-full max-w-[420px] px-2 py-1 bg-surface-1 border border-border rounded shadow-lg whitespace-normal"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {fits.slice(0, 2).map((item) => <FitLine key={item.layerId} item={item} />)}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -9,6 +9,7 @@ import CardForm from './Cards/CardForm';
 import TemplateAssignmentDialog from './Cards/TemplateAssignmentDialog';
 import ImportDialog from './Cards/ImportDialog';
 import MissingArtBanner from './Cards/MissingArtBanner';
+import LiveFitProbe from './Fit/LiveFitProbe';
 
 const PANE_KEY = 'tcgforge.cardsPreview';
 
@@ -154,6 +155,7 @@ export default function CardDatabase() {
       {tab === 'database' && selectedCount > 0 && <CardBulkActions />}
       {rulesOpen && <TemplateAssignmentDialog onClose={() => setRulesOpen(false)} />}
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
+      <LiveFitProbe />
     </div>
   );
 }

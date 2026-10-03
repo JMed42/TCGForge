@@ -35,7 +35,29 @@ export function useCardFit(cardId, labels) {
   const live = useStore((s) => (s.liveFit?.cardId === cardId ? s.liveFit : null))
   const stale = useStore((s) => s.fitProgress.staleIds.has(cardId))
   const summary = useMemo(() => summaryOf(live || entry, labels), [live, entry, labels])
-  return { summary, stale: stale && !live, live: Boolean(live) }
+  return { summary, stale: stale && !live, live: Boolean(live), templateId: (live || entry)?.templateId ?? null }
+}
+
+/**
+ * The fit budget by field for one card: fieldKey -> [FitItem] (the text layers that show the
+ * field, hardest first), from what is being typed or else the saved result.
+ */
+export function useFieldFits(cardId) {
+  const labels = useLayerLabels()
+  const templates = useParsedTemplates()
+  const { summary, templateId } = useCardFit(cardId, labels)
+  return useMemo(() => {
+    const out = new Map()
+    const fields = templates.get(templateId)?.fields
+    if (!summary || !fields) return out
+    for (const item of summary.items) {
+      for (const key of fields.get(item.layerId) || []) {
+        if (!out.has(key)) out.set(key, [])
+        out.get(key).push(item)
+      }
+    }
+    return out
+  }, [summary, templates, templateId])
 }
 
 /** Fit summaries without labels (filters, sorting): card -> summary or null. */

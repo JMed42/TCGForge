@@ -5,6 +5,8 @@ import CardArtField from './CardArtField'
 import { cellKey, getFieldRaw, sameValue } from './grid/cardFields'
 import { markEdit } from './grid/liveTiming'
 import { fieldMap, fieldsForType, isNumeric, KIND_LABELS, NAME_FIELD, STANDARD_KEYS } from '../../cardModel/model'
+import { FitLine } from '../Fit/FitStatus'
+import { useFieldFits } from '../Fit/useFit'
 
 const SAVE_DELAY_MS = 500
 const inputClass = 'w-full px-3 py-2 bg-surface-2 border border-border rounded text-text-primary placeholder-text-muted focus:outline-none focus:border-accent'
@@ -12,11 +14,14 @@ const inputClass = 'w-full px-3 py-2 bg-surface-2 border border-border rounded t
 // One field. Typing shows in the preview at once (store.liveEdit) and saves itself SAVE_DELAY_MS
 // after the last keystroke, on leaving the field, or when the card changes. While the field has
 // focus, a save coming back from the database never overwrites what is being typed.
-function FieldInput({ card, field, autoFocus }) {
+// fits: the text layers that show this field, with their fit budget (src/components/Fit): shown
+// while the field has focus, and always when the text doesn't fit as set.
+function FieldInput({ card, field, autoFocus, fits }) {
   const key = cellKey(field.key)
   const stored = getFieldRaw(card, key)
   const [value, setValue] = useState(stored)
   const focused = useRef(false)
+  const [hasFocus, setHasFocus] = useState(false)
   const timer = useRef(null)
   const latest = useRef({ cardId: card.id, value: stored, stored })
   const inputRef = useRef(null)
@@ -61,8 +66,8 @@ function FieldInput({ card, field, autoFocus }) {
   }
   const now = (v) => { setValue(v); latest.current.value = v; commit() }
   const common = {
-    onFocus: () => { focused.current = true },
-    onBlur: () => { focused.current = false; commit() },
+    onFocus: () => { focused.current = true; setHasFocus(true) },
+    onBlur: () => { focused.current = false; setHasFocus(false); commit() },
     'data-field-input': field.key,
   }
 
@@ -99,6 +104,7 @@ function FieldInput({ card, field, autoFocus }) {
   }
 
   const warn = field.kind === 'number' && String(value ?? '').trim() !== '' && !isNumeric(value)
+  const budget = (fits || []).filter((item) => hasFocus || item.result.status !== 'fits').slice(0, 2)
   return (
     <div className="space-y-1" data-form-field={field.key}>
       <label className="flex items-baseline gap-2 text-sm font-medium text-text-primary">
@@ -106,6 +112,7 @@ function FieldInput({ card, field, autoFocus }) {
         <span className="text-[10px] font-normal text-text-muted">{KIND_LABELS[field.kind]}</span>
       </label>
       {control}
+      {budget.length > 0 && <div data-testid="fit-budget">{budget.map((item) => <FitLine key={item.layerId} item={item} />)}</div>}
       {warn && <p className="text-[11px] text-amber-400">Not a number. Templates will show it as typed; sorting puts it last.</p>}
       {field.help && !warn && <p className="text-[11px] text-text-muted">{field.help}</p>}
     </div>
@@ -176,6 +183,7 @@ export default function CardForm({ focusName }) {
   const canRedo = useStore((s) => s.cellHistory.future.length > 0)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const typeFields = useMemo(() => (card ? fieldsForType(model, card.card_type_id) : [NAME_FIELD]), [model, card?.card_type_id])
+  const fieldFits = useFieldFits(card?.id)
   useEffect(() => setConfirmDelete(false), [card?.id])
 
   if (!card) {
@@ -214,7 +222,7 @@ export default function CardForm({ focusName }) {
       {error && <p className="px-5 py-1.5 text-xs text-danger border-b border-border" data-testid="form-error">{error}</p>}
       <div className="flex-1 overflow-auto px-5 py-4">
         <div className="max-w-xl space-y-4">
-          {typeFields.map((f, i) => <FieldInput key={`${card.id}:${f.key}`} card={card} field={f} autoFocus={focusName === card.id && i === 0} />)}
+          {typeFields.map((f, i) => <FieldInput key={`${card.id}:${f.key}`} card={card} field={f} autoFocus={focusName === card.id && i === 0} fits={fieldFits.get(f.key)} />)}
           <OtherValues card={card} typeFields={typeFields} />
         </div>
       </div>

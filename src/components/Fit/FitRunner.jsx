@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../../store'
 import CardRender from '../../designer/render/CardRender.tsx'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
-import { orderRules, resolveTemplate } from '../../designer/rules/resolveTemplate.ts'
-import { engineKey, fitInputHash, FIT_PX_PER_MM, sizesImagesByFile } from '../../designer/fit/inputs.ts'
+import { orderRules } from '../../designer/rules/resolveTemplate.ts'
+import { FIT_PX_PER_MM } from '../../designer/fit/inputs.ts'
 import { useParsedTemplates } from './templates'
+import { fitKeyFor } from './fitKey'
 import { deliver, hasRequested, onRequested, takeRequested } from './fitQueue'
 
 // The background fit check (spec Phase 3: "fit_cache fills in the background for the whole set
@@ -18,11 +19,6 @@ import { deliver, hasRequested, onRequested, takeRequested } from './fitQueue'
 const MAX_BATCH = 8
 const TARGET_MS = 12 // per measuring step, so the app stays responsive
 const BATCH_TIMEOUT_MS = 8000
-const BROWSER = (navigator.userAgent.match(/Chrome\/[\d.]+/) || [navigator.userAgent])[0]
-const ENGINE = engineKey(BROWSER)
-
-// Input hashes by card object (a card that changes is a new object).
-const hashMemo = new WeakMap()
 
 export default function FitRunner() {
   const projectId = useStore((s) => s.activeProjectId)
@@ -47,20 +43,10 @@ export default function FitRunner() {
   const wanted = useMemo(() => {
     if (!sigs) return []
     const ordered = orderRules(rules)
-    const ids = [...templates.keys()]
     const out = []
     for (const card of cards) {
-      const { templateId } = resolveTemplate(card, ordered, ids)
-      const entry = templateId ? templates.get(templateId) : null
-      if (!entry?.template) continue
-      const imagesSig = sizesImagesByFile(entry.template) ? sigs.images : null
-      const key = `${templateId}|${entry.hash}|${sigs.fonts}|${imagesSig}`
-      let memo = hashMemo.get(card)
-      if (!memo || memo.key !== key) {
-        memo = { key, hash: fitInputHash({ card, templateId, templateHash: entry.hash, fontsSig: sigs.fonts, imagesSig, engine: ENGINE }) }
-        hashMemo.set(card, memo)
-      }
-      out.push({ card, cardId: card.id, templateId, templateVersion: entry.row.version, template: entry.template, hash: memo.hash })
+      const key = fitKeyFor(card, templates, ordered, sigs)
+      if (key) out.push({ ...key, card, cardId: card.id })
     }
     return out
   }, [cards, rules, templates, sigs])

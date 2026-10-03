@@ -4,17 +4,12 @@ import { useStore } from '../../store'
 import CardRender, { cardPixelSize } from '../../designer/render/CardRender.tsx'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
 import { useParsedTemplates } from '../Fit/templates'
+import { FitLine } from '../Fit/FitStatus'
+import { useCardFit, useLayerLabels } from '../Fit/useFit'
 import { resolveTemplate, orderRules, describeResolution } from '../../designer/rules/resolveTemplate.ts'
 import { applyLive, cellKey } from './grid/cardFields'
 import { fieldsForType } from '../../cardModel/model'
 import { measurePaint } from './grid/liveTiming'
-
-const FIT_LABEL = {
-  fits: (r) => `fits at ${r.pt} pt`,
-  shrunk: (r) => `shrunk to ${r.pt} pt`,
-  hidden: () => 'hidden (no room)',
-  overflow: (r) => `overflows at ${r.pt} pt`,
-}
 
 /** The selected card, rendered live with the template its override or the rules pick. */
 export default function CardPreviewPane({ onClose, onOpenRules }) {
@@ -78,8 +73,11 @@ export default function CardPreviewPane({ onClose, onOpenRules }) {
       setPasteNote(String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     }
   }
-  // Fit budget for text that didn't fit at its set size (spec: "Rules text: fits at 8.5 pt").
-  const fitLines = useMemo(() => Object.entries(report?.fits || {}).filter(([, r]) => r.status !== 'fits'), [report])
+  // Text that doesn't fit at its set size, measured by the live probe (components/Fit) the same
+  // way as the Fit column (spec: "Rules text: fits at 8.5 pt").
+  const labels = useLayerLabels()
+  const { summary: fit } = useCardFit(card?.id, labels)
+  const fitLines = useMemo(() => (fit ? fit.items.filter((i) => i.result.status !== 'fits') : []), [fit])
   const templateName = (id) => templates.get(id)?.row.name || `#${id}`
   const size = template ? cardPixelSize(template, pxPerMm, false) : null
   const overrideId = card?.template_override_id ?? ''
@@ -133,11 +131,7 @@ export default function CardPreviewPane({ onClose, onOpenRules }) {
       <div className="px-3 py-2 border-t border-border text-[11px] space-y-1 max-h-32 overflow-auto">
         {pasteNote && <p className="text-text-secondary" data-testid="preview-paste-note">{pasteNote}</p>}
         {resolution?.errors.map((e) => <p key={e} className="text-danger">⚠ {e}</p>)}
-        {fitLines.map(([id, r]) => (
-          <p key={id} className={r.status === 'overflow' ? 'text-danger' : 'text-text-secondary'} data-fit={id}>
-            {r.status === 'overflow' ? '⚠ ' : ''}{id}: {FIT_LABEL[r.status](r)}
-          </p>
-        ))}
+        {fitLines.map((item) => <FitLine key={item.layerId} item={item} />)}
         {report?.warnings.map((w) => <p key={w} className="text-amber-400">⚠ {w}</p>)}
         <p className="text-text-muted" data-testid="render-timing">
           {lastMs === null ? 'Edit a cell to see the live render time.' : `Last edit rendered in ${lastMs.toFixed(0)} ms`}
