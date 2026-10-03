@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ListOrdered, PanelRightClose } from 'lucide-react'
+import { ClipboardPaste, ListOrdered, PanelRightClose } from 'lucide-react'
 import { useStore } from '../../store'
 import CardRender, { cardPixelSize } from '../../designer/render/CardRender.tsx'
 import { validateTemplate } from '../../designer/schema/schema.ts'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
 import { resolveTemplate, orderRules, describeResolution } from '../../designer/rules/resolveTemplate.ts'
-import { applyLive } from './grid/cardFields'
+import { applyLive, cellKey } from './grid/cardFields'
+import { fieldsForType } from '../../cardModel/model'
 import { measurePaint } from './grid/liveTiming'
 
 const FIT_LABEL = {
@@ -78,6 +79,26 @@ export default function CardPreviewPane({ onClose, onOpenRules }) {
   }, [liveCard, template])
 
   const onReady = useCallback((r) => setReport(r), [])
+  const model = useStore((s) => s.cardModel)
+  const [pasteNote, setPasteNote] = useState(null)
+  useEffect(() => setPasteNote(null), [card?.id])
+  // The card type's image field: Art if it has one, else the first image field.
+  const imageField = useMemo(() => {
+    if (!card) return null
+    const fields = fieldsForType(model, card.card_type_id).filter((f) => f.kind === 'image')
+    return fields.find((f) => f.key === 'image_path') || fields[0] || null
+  }, [model, card])
+  const pasteArt = async () => {
+    setPasteNote(null)
+    try {
+      const res = await window.api.pasteImageFromClipboard(activeProjectId, { folder: 'art', name: card.name })
+      if (res.empty) { setPasteNote('No image on the clipboard.'); return }
+      await useStore.getState().commitCell(card.id, cellKey(imageField.key), res.path)
+      setPasteNote(`Pasted into ${imageField.label}.`)
+    } catch (err) {
+      setPasteNote(String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    }
+  }
   // Fit budget for text that didn't fit at its set size (spec: "Rules text: fits at 8.5 pt").
   const fitLines = useMemo(() => Object.entries(report?.fits || {}).filter(([, r]) => r.status !== 'fits'), [report])
   const templateName = (id) => templates.get(id)?.row.name || `#${id}`
@@ -88,6 +109,11 @@ export default function CardPreviewPane({ onClose, onOpenRules }) {
     <div className="flex flex-col h-full bg-surface-1 border-l border-border" data-testid="card-preview" data-last-render-ms={lastMs === null ? '' : lastMs.toFixed(1)}>
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <span className="text-sm font-medium text-text-primary truncate flex-1" title={card?.name}>{card ? card.name || 'Unnamed card' : 'No card selected'}</span>
+        {imageField && (
+          <button onClick={pasteArt} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-surface-2 hover:bg-surface-3 text-text-secondary" data-testid="preview-paste-art" title={`Paste an image from the clipboard into ${imageField.label}`}>
+            <ClipboardPaste size={14} /> Paste art
+          </button>
+        )}
         <button onClick={onOpenRules} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-surface-2 hover:bg-surface-3 text-text-secondary" data-testid="open-template-rules" title="Template assignment: which template each card uses">
           <ListOrdered size={14} /> Assignment…
         </button>
@@ -126,6 +152,7 @@ export default function CardPreviewPane({ onClose, onOpenRules }) {
       </div>
 
       <div className="px-3 py-2 border-t border-border text-[11px] space-y-1 max-h-32 overflow-auto">
+        {pasteNote && <p className="text-text-secondary" data-testid="preview-paste-note">{pasteNote}</p>}
         {resolution?.errors.map((e) => <p key={e} className="text-danger">⚠ {e}</p>)}
         {fitLines.map(([id, r]) => (
           <p key={id} className={r.status === 'overflow' ? 'text-danger' : 'text-text-secondary'} data-fit={id}>

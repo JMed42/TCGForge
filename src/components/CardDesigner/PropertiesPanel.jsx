@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useStore } from '../../store'
 import { isContainer } from '../../designer/schema/types.ts'
 import { bindableFields } from '../../designer/expr/scope.ts'
@@ -157,6 +157,37 @@ function TemplateSettings({ draft, edit }) {
   )
 }
 
+// Put a fixed image (a frame, an icon) on an image layer: paste it or choose a file. The file is
+// copied into the project's assets/images folder and the layer's source points at it.
+function TemplateImageButtons({ projectId, layerId, onPath }) {
+  const [note, setNote] = useState(null)
+  const fileRef = useRef(null)
+  const done = (res) => {
+    if (res?.empty) { setNote('No image on the clipboard.'); return }
+    if (res?.path) { onPath(res.path); setNote(null) }
+  }
+  const fail = (err) => setNote(String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+  const paste = () => window.api.pasteImageFromClipboard(projectId, { folder: 'images', name: layerId }).then(done, fail)
+  const onFile = (file) => {
+    if (!file) return
+    let p = null
+    try { p = window.api.pathForFile(file) } catch { p = null }
+    if (!p) { setNote('Could not read that file.'); return }
+    window.api.importCardArt(projectId, p, { folder: 'images' }).then(done, fail)
+  }
+  return (
+    <div className="col-span-2 space-y-1">
+      <div className="flex gap-2">
+        <button type="button" data-testid="layer-paste-image" onClick={paste} className="px-2 py-1 text-xs rounded bg-surface-2 hover:bg-surface-3 text-text-secondary">Paste image</button>
+        <button type="button" onClick={() => fileRef.current?.click()} className="px-2 py-1 text-xs rounded bg-surface-2 hover:bg-surface-3 text-text-secondary">Choose image…</button>
+        <input ref={fileRef} type="file" accept=".png,.jpg,.jpeg,.gif" className="hidden" data-testid="layer-image-file" onChange={(e) => { onFile(e.target.files[0]); e.target.value = '' }} />
+      </div>
+      <p className="text-[10px] text-text-muted">For frames and icons that are the same on every card. Card art uses a binding such as {'{{image_path}}'} instead.</p>
+      {note && <p className="text-[10px] text-danger" data-testid="layer-image-note">{note}</p>}
+    </div>
+  )
+}
+
 export default function PropertiesPanel() {
   const { draft, selectedIds, edit, cards, previewCardId, activeProjectId, assetVersions, cardModel } = useStore()
   const fields = useMemo(() => (cardModel.fields.length ? bindingFields(cardModel) : bindableFields(cards)), [cardModel, cards])
@@ -241,6 +272,7 @@ export default function PropertiesPanel() {
           <Field wide label="Source (asset path or binding)">
             <BindingInput testid="image-src" value={layer.src} onChange={(v) => set('src', v)} fields={fields} card={card} placeholder="{{image_path}} or assets/frames/ember.png" />
           </Field>
+          <TemplateImageButtons projectId={activeProjectId} layerId={layer.id} onPath={(p) => set('src', p)} />
           <SelectField label="Fit" value={layer.objectFit || 'cover'} options={['cover', 'contain', 'fill', 'tile']} onChange={(v) => set('objectFit', v)} />
           <SelectField label="When missing" value={layer.placeholder || 'proxy'} options={[['proxy', 'Grey placeholder'], ['none', 'Nothing']]} onChange={(v) => set('placeholder', v)} />
           <Field label="Anchor">

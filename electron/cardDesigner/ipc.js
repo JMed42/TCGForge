@@ -406,8 +406,9 @@ function registerCardDesignerIpc(ipcMain, deps) {
   });
 
   // Same as chooseCardArt without the dialog (tests, and drag-and-drop later).
-  ipcMain.handle('importCardArt', async (_, projectId, sourcePath) => {
-    const imagePath = await art.importCardArt(userDataPath, projectId, sourcePath);
+  // options.folder: 'art' (card art, default) or 'images' (template frames and icons).
+  ipcMain.handle('importCardArt', async (_, projectId, sourcePath, options = {}) => {
+    const imagePath = await art.importCardArt(userDataPath, projectId, sourcePath, { folder: options.folder || 'art' });
     return { path: imagePath, thumbnail: await art.thumbnail(userDataPath, projectId, imagePath) };
   });
 

@@ -75,7 +75,7 @@ contextBridge.exposeInMainWorld('api', {
   getSheetLayout: (templateId, options) => ipcRenderer.invoke('getSheetLayout', templateId, options),
   exportPrintSheets: (projectId, templateId, options) => ipcRenderer.invoke('exportPrintSheets', projectId, templateId, options),
   chooseCardArt: (projectId) => ipcRenderer.invoke('chooseCardArt', projectId),
-  importCardArt: (projectId, sourcePath) => ipcRenderer.invoke('importCardArt', projectId, sourcePath),
+  importCardArt: (projectId, sourcePath, options) => ipcRenderer.invoke('importCardArt', projectId, sourcePath, options),
   getImageThumbnail: (projectId, imagePath) => ipcRenderer.invoke('getImageThumbnail', projectId, imagePath),
   // Window close guard (see main.js): register, get asked on close, then confirm.
   onCloseRequested: (callback) => {
