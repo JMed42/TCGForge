@@ -2,8 +2,8 @@
 
 (Formerly TCG Studio.)
 
-Snapshot of the codebase as of Card Designer Phase 2 + Phase 1b + review round 1 (2026-10), built against the original
-6-phase spec in docs/card-designer-spec.md. Describes what the code actually does.
+Snapshot of the codebase as of Card Designer Phase 3 (fit engine), after Phase 2, Phase 1b and review round 1 (2026-10),
+built against the original 6-phase spec in docs/card-designer-spec.md. Describes what the code actually does.
 
 ## Stack
 
@@ -32,6 +32,7 @@ Snapshot of the codebase as of Card Designer Phase 2 + Phase 1b + review round 1
 │ electron/assetIndex.js   assets table, missing art  │
 │ electron/import/         CSV/XLSX card import + IPC │
 │ electron/cardModel.js    card types & fields + IPC  │
+│ electron/fitCache.js     fit results (fit_cache)    │
 │ electron/clipboard.js    clipboard text and images  │
 └───────────────▲─────────────────────────────────────┘
                 │ ipcRenderer.invoke / ipcMain.handle
@@ -55,13 +56,13 @@ Snapshot of the codebase as of Card Designer Phase 2 + Phase 1b + review round 1
 
 - sql.js loads the whole file `{userData}/tcgforge.db` into memory at startup.
 - `userData` is pinned to `{appData}/TCGForge` in `main.js`, so dev and packaged builds share it. An explicit `--user-data-dir` overrides this. On first launch, `electron/legacyData.js` copies (never moves) `tcg-studio.db` and `projects/` from the old `tcg-studio` / `TCG Studio` folders.
-- Helpers: `queryAll`, `queryOne`, and `run`. **`run` exports and rewrites the entire DB file on every write** (`saveDatabase`). Bulk operations such as `bulkDeleteCards`, `deleteProject` and `importProject` loop `run`, so they rewrite the file once per row. That's fine at current sizes, but it's a scaling hazard.
+- Helpers: `queryAll`, `queryOne`, and `run`. **`run` exports and rewrites the entire DB file on every write** (`saveDatabase`). `deleteProject` and `importProject` still loop `run` for cards and documents, so they rewrite the file once per row. That's fine at current sizes, but it's a scaling hazard. Fit results are batched for this reason (at most one write every 2 s).
 - The base schema (version 0) is created with `CREATE TABLE IF NOT EXISTS` in `initDatabase`. Later changes are **migrations** in `electron/migrations.js`, tracked with `PRAGMA user_version`.
   - Pending steps run in one transaction, and a failure rolls back and stops startup.
   - Before the first change, the file is copied to `tcgforge.db.bak-v{N}`.
-  - Append new migrations; never edit a shipped one. Current: v1 `templates` table; v2 one-time import of Phase 0 template files; v3 template schema v1 (pixel templates converted, originals kept in `legacy_content`, `version` column); v4 `template_rules`, `assets`, `cards.template_override_id`; v5 `card_fields`, `card_types`, `cards.card_type_id` (every project gets a "Card" type with the standard fields plus the custom keys its cards hold).
+  - Append new migrations; never edit a shipped one. Current: v1 `templates` table; v2 one-time import of Phase 0 template files; v3 template schema v1 (pixel templates converted, originals kept in `legacy_content`, `version` column); v4 `template_rules`, `assets`, `cards.template_override_id`; v5 `card_fields`, `card_types`, `cards.card_type_id` (every project gets a "Card" type with the standard fields plus the custom keys its cards hold); v6 `fit_cache`.
 - Multi-statement writes (rule lists, imports, asset index updates, model changes, bulk card edits, deletes) go through `inTransaction(fn)`: one transaction, one save. `exec(sql)` runs a statement without saving, for use inside it.
-- Foreign keys are off (sql.js default). Cascades are done by hand: `deleteProject` removes cards, documents, templates, rules and asset rows; `deleteTemplate` removes its rules and clears card overrides and type defaults that point at it; `deleteDocument` is recursive.
+- Foreign keys are off (sql.js default). Cascades are done by hand: `deleteProject` removes cards, documents, templates, rules, asset rows and fit results; `deleteCard` / `bulkDeleteCards` remove the cards' fit results in the same transaction; `deleteTemplate` removes its rules and clears card overrides and type defaults that point at it; `deleteDocument` is recursive.
 
 ### Schema
 
@@ -75,6 +76,7 @@ Snapshot of the codebase as of Card Designer Phase 2 + Phase 1b + review round 1
 | `assets` | `project_id`, `rel_path` (unique per project), `kind` (art/icon/font/frame/other), `sha256`, `width`, `height`, `size`, `mtime` |
 | `card_fields` | `project_id`, `key` (unique per project), `label`, `kind` (text/longText/number/choice/yesNo/image/tags), `options` (JSON), `default_value`, `help` |
 | `card_types` | `project_id`, `name` (unique per project), `color`, `sort_order`, `template_id` (the type's default template), `field_keys` (ordered JSON list) |
+| `fit_cache` | `card_id` (primary key), `project_id`, `template_id`, `template_version`, `data_hash` (hash of every fit input), `results_json` (fit result per text layer), `computed_at`. Computed data: not exported, rebuilt when missing |
 
 `cards` also has `template_override_id` (v4, nullable): a card's own template choice, which beats everything; and `card_type_id` (v5): every card has one type. Card queries join the type in as `card_type` (name) and `card_type_template_id`.
 
@@ -93,13 +95,13 @@ All stat-like card fields (`cost`, `power`, `toughness`) are TEXT. JSON columns 
   - call `window.api?.x?.(…)` inside try/catch and `console.error` on failure
   - after any mutation, reload the whole list (`loadCards`, `loadDocuments`)
   - keep filters in the store; `setCardFilters` triggers a reload
-- **Components:** feature folders `src/components/<Feature>/` with an `index.js` barrel. Top-level view components (`CardDatabase.jsx`, `RulesWorkspace.jsx`) sit directly in `src/components/`. Components read the store with `useStore()` destructuring.
+- **Components:** feature folders `src/components/<Feature>/` with an `index.js` barrel. Top-level view components (`CardDatabase.jsx`, `RulesWorkspace.jsx`) sit directly in `src/components/`. Older components read the store with `useStore()` destructuring (they re-render on every store change); `App.jsx`, the Cards screen and the Designer panels use selectors (`useShallow` for several fields), because the fit check updates the store often.
 - **Styling:** Tailwind utility classes only, using the tokens `surface-0..4`, `accent`, `text-primary/secondary/muted`, `border`, and `success/warning/danger`. Shared component classes are in `src/index.css`. Icons are lucide at size 16–20.
 - **Code style:** most files use no semicolons and single quotes. `Cards/*`, `CardDatabase.jsx` and parts of `electron/` use semicolons.
 
 ## Card Designer module
 
-Built against docs/card-designer-spec.md (the original 6-phase spec). Phase 1 (renderer and live preview, including "Phase 1b": Cards preview, template rules, CSV/XLSX import, assets index) and Phase 2 (Template Designer) are complete, plus review round 1: card types and fields (the project's own data model), a Cards tab with a form and a Database tab for batch edits, clipboard art, and clearer naming (Game Docs, Template assignment).
+Built against docs/card-designer-spec.md (the original 6-phase spec). Phase 1 (renderer and live preview, including "Phase 1b": Cards preview, template rules, CSV/XLSX import, assets index), Phase 2 (Template Designer) and Phase 3 (fit engine) are complete, plus review round 1: card types and fields (the project's own data model), a Cards tab with a form and a Database tab for batch edits, clipboard art, and clearer naming (Game Docs, Template assignment).
 
 ```
 src/designer/                      engine (TypeScript)
@@ -112,12 +114,20 @@ src/designer/                      engine (TypeScript)
   editor/ops.ts, geometry.ts       pure template edits and mm geometry
   rules/resolveTemplate.ts         override -> exceptions -> card type template -> default
   model/renameField.ts             rename a field key in every binding (token-aware)
+  fit/inputs.ts, hash.ts           the fit-check key: hash of every fit input; 300-dpi scale
+  fit/summary.ts, bindings.ts      statuses, hardness order, Fit filter, wording; fields per text layer
 src/cardModel/model.js             helpers over the card model (fields of a type, labels, kinds)
 src/cardModelSlice.js              card types & fields state; key rename with template rewrites
+src/fitSlice.js                    fit cache, file signatures, progress, live and Designer results
 src/designerSlice.js               editor state (draft, history, selection, guard, assets)
 src/cardsSlice.js                  Cards screen state (tab, active card, liveEdit, batch writes, undo, rules, missing art)
 src/components/CardDatabase.jsx    Cards screen: Cards tab (list + form) or Database tab (grid), live preview right
 src/components/CardTypes/          Card Types screen: types, field library, field editor, dialogs
+src/components/Fit/
+  FitRunner.jsx, fitQueue.js       background fit check (hidden, idle batches) + direct requests
+  LiveFitProbe.jsx, DesignerFitProbe.jsx  the card being edited; the Designer's draft on its sample
+  fitKey.js, templates.js          a card's template + input hash; parsed template rows
+  FitStatus.jsx, useFit.js         Fit cell, list badge, budget line, progress; per-card hooks
 src/components/Cards/
   CardList.jsx, CardForm.jsx       Cards tab: list by type; the card's type fields, auto-saved
   CardTable.jsx                    Database grid (ranges, copy/paste, fill-down, columns from the model)
@@ -133,15 +143,17 @@ src/components/CardDesigner/
   DesignerView.jsx                 layout, toolbar (undo/redo/discard/save, exports)
   DesignerCanvas.jsx               zoom/pan, guides, select/drag/resize/snap, align, group
   LayersPanel.jsx                  layer tree (drag & drop, hide, lock, rename, add)
-  PropertiesPanel.jsx              frame anchors/units, style, bindings, template size
+  PropertiesPanel.jsx              frame anchors/units, style, bindings, template size, fit readout
+  WorstCase.jsx                    worst-case button: rank sample cards by the selected text
   BindingInput.jsx                 binding picker with live preview
   TemplatePicker.jsx, TemplateJsonPanel.jsx, ExportControls.jsx,
   PrintSheetsDialog.jsx, UnsavedChangesDialog.jsx, editor/fields.jsx, editor/history.js
 electron/
   renderWindow.js                  hidden offscreen window: capturePage (PNG/JPEG), printToPDF
   assets.js                        tcg-asset:// protocol, path guard, fs.watch
-  migrations.js                    v1-v5
+  migrations.js                    v1-v6
   cardModel.js                     card types & fields: validation, starters, rename, import changes
+  fitCache.js                      fit_cache rows: list, batched save, clear (Re-check all)
   clipboard.js                     clipboard text and images (bitmap or copied file)
   assetIndex.js, imageSize.js      assets table (scan + watcher), image header sizes, missing art
   import/csv.js, xlsx.js           CSV (RFC 4180, encodings) and .xlsx (zip + XML) readers, no deps
@@ -157,8 +169,8 @@ electron/
 - `CardRender` draws a template as absolutely positioned HTML in a fixed box measured in mm (`pxPerMm`). Frames resolve against the trim box or their group; stacks use flex layout.
   - Supported: `text`, `richText` (`**bold**`, `*italic*`), `image`, `shape` (SVG, centred stroke), `group`, `stack`, `visibleIf`, `{{ }}` bindings.
   - `iconRepeat` is outlined until Phase 4, and `{shortcode}` symbols render as typed until Phase 4.
-- Text fits by measuring the real layout: shrink in 0.25 pt steps down to `fit.minPt` (default 6 pt), then tighten leading, then hide or flag overflow. The full fit engine and `fit_cache` are Phase 3.
-- `onReady` fires once fonts are loaded, every `<img>` has settled and two frames have painted. Exports wait for it.
+- Text fits by measuring the real layout (see **Fit engine** below).
+- `onReady` fires once fonts are loaded, every `<img>` has settled and two frames have painted. Exports wait for it. `measureOnly` + `onFits` (fit checks) skip loading images whose size is set by their frame and report as soon as layout is done, and again only when a result, the template or the card changes.
 - **Exports** render in a hidden offscreen window (`electron/renderWindow.js`) at the requested dpi.
   - PNG via `capturePage`, with a pHYs DPI chunk. Corners are transparent unless bleed is included.
   - JPEG is composited on white.
@@ -200,7 +212,8 @@ electron/
 **Database tab (live loop and batch edits)**
 - Columns come from the model: one type's fields when filtered to a type; otherwise a Card type column plus every field, with cells a card's type doesn't use greyed and skipped.
 - Shift+arrows / Shift+click / drag select a range. Ctrl+C writes TSV; Ctrl+V parses Excel/Sheets TSV (quoted cells, CRLF), one value fills a larger selection; Ctrl+D fills down; Delete clears. The bulk bar sets a field or changes the type for checked rows. Every batch is one `bulkUpdateCards` transaction and one undo step.
-- Filters (search across every field, card type, one field condition, missing art) run in the renderer; exports get the exact list (`cardIds`).
+- Filters (search across every field, card type, one field condition, fit, missing art) run in the renderer; exports get the exact list (`cardIds`). The Fit filter reads saved results, not what is being typed, so a row doesn't vanish mid-edit.
+- The read-only Fit column (after Name) shows each card's hardest text layer by the field it shows; paste, fill-down and clear skip it, copy gives its text, and it sorts hardest first.
 
 **Clipboard art**
 - `pasteImageFromClipboard` saves a bitmap (browser, image editor, Snipping Tool) or a copied image file (Explorer `FileNameW`) into `assets/art` (card art) or `assets/images` (template frames and icons), deduplicated by hash. Used by image fields, the preview's Paste art, Ctrl+V on art cells and Designer image layers.
@@ -210,6 +223,17 @@ electron/
 - While typing, the value lives in `store.liveEdit` and the preview renders `applyLive(card, liveEdit)` with no database round-trip. Commit writes one field through `updateCard` and swaps the row in place (no list reload).
 - Edit-to-paint time is measured from the input event's timestamp to the first task after the frame that shows it (`grid/liveTiming.js`); measured p50 ≈ 10 ms, p95 ≈ 16 ms on the longest card. The preview also lists each text layer that shrank or overflows.
 - Components subscribe with selectors, so a keystroke re-renders the preview, not the whole grid.
+
+**Fit engine (Phase 3)**
+- Every text layer has a policy: a starting size (`style.sizePt`, capped by `fit.maxPt`), a minimum (`fit.minPt`, default 6 pt) and strategies (`shrink`, `tightenLeading`, `hide`), applied in the spec's order: shrink in 0.25 pt steps to the minimum, tighten the line height in 0.05 steps to 1.0, hide, else flag overflow (`fitText`).
+- Text with a size of its own (a frame, or a set height in a stack) fits itself. Text that sizes to its content inside a stack is fitted by the stack (`fitStack`, run by `StackView` against the DOM): layers give way by `priority`, the highest number first, and equal priorities shrink together; after each hide the rest start again from full size; what is still cut off at the stack's end is flagged with how much. A stack's `fitOrder: 'hideFirst'` hides before shrinking (the spec's open question; default shrink first).
+- Each result: status (fits / shrunk / hidden / overflow), size and line height used, starting and minimum size, `fill` (space needed at the starting size ÷ space available), overflow in mm and lines (or `wide`), spare lines.
+- **Measured one way:** every status the app reports (Fit column, filter, badges, budget lines, Designer readout and worst case) comes from a measure-only `CardRender` in a hidden area of the app window at 300 dpi, with the project's fonts loaded.
+- **The cache key** (`fit/inputs.ts`, `components/Fit/fitKey.js`) hashes the card's scope (what the template sees, including `card_type`), the template it resolves to and that template's saved content, the project font files whose family the template uses (sha256 from the assets index), the project's image files only if the template lets an image size itself inside a stack, and the fit engine and browser versions. A change to any of them changes the hash, so nothing has to invalidate the cache.
+- **Background check** (`FitRunner`, mounted while a project is open): cards whose hash has no cached result are measured a few at a time in idle callbacks (the active card first; the batch size adapts to stay near 12 ms). Results go to `store.fitCache` at once and to `fit_cache` at most every 2 s and at the end. `openProject` loads templates, exceptions, file signatures and the cache, so it runs on any screen. Requests from the Designer (`fitQueue.js`) go first.
+- **Live budget** (`LiveFitProbe`, on the Cards screen): measures the active card with `liveEdit` applied on each keystroke into `store.liveFit`; the form's budget lines, the cell editor, the preview's fit lines and the active card's Fit cell read it. When nothing is being typed its result is also the card's cache entry.
+- **Designer** (`DesignerFitProbe`): the draft on the sample card, 150 ms after the last edit, into `store.designerFit` (outlines for overflowing / hidden text, the Properties readout). Worst case measures the draft on the sample cards through the fit queue (or uses the cache when the template is saved and current) and ranks by `compareHardness`: overflowing most, then hidden, then shrunk furthest below its size, then fullest.
+- Exports still measure at their own scale. Gate check (66 cards, 391 text layers): exports at 300 and 600 dpi agree with the cache on every layer; at 96 and 150 dpi, 2 layers came out one 0.25 pt step larger (7.5 vs 7.25 pt). Print sheets lay out at 96 dpi.
 
 **Template assignment** (template_rules are shown as "exceptions")
 - `resolveTemplate` (TypeScript, in the renderer) picks the card's own choice → the first exception in priority order whose condition is true → the card type's template → the project default (lowest template id). Conditions use the same sandboxed evaluator as bindings; an error counts as false and is reported.
@@ -254,4 +278,7 @@ The DB stores `tags` as one comma-separated TEXT value and `custom_fields` / `ca
 6. Fonts are added by putting files in `{project}/assets/fonts` (they appear immediately). Template images can be pasted or chosen on an image layer. Export Project includes the card model but not templates or art yet.
 7. Import limits: .xls (pre-2007) isn't read; formulas use the value Excel cached; workbooks in the 1904 date system get dates 4 years early; 20,000 rows, 500 columns and 50 MB per file.
 8. Tiled backgrounds can differ very slightly between the editor (GPU) and exports (software raster) at non-integer scales; everything else matches pixel for pixel.
-9. No fit-status column yet (Phase 3). Pasting more rows than the grid has doesn't create cards; it reports the rows that didn't fit.
+9. Pasting more rows than the grid has doesn't create cards; it reports the rows that didn't fit.
+10. Fit results are measured at 300 dpi. On borderline cards, renders at screen scale and the 96-dpi print-sheet layout can come out one 0.25 pt step different (2 of 391 text layers in the Phase 3 gate).
+11. The Database grid renders every row: opening it with 300 cards takes about 0.6 s (the Fit column adds 70–100 ms of that). Virtualising the rows would remove it.
+12. Installing or removing a system font doesn't change any fit-check input; "Re-check all" measures every card again.
