@@ -11,7 +11,11 @@ import UnsavedChangesDialog from './components/CardDesigner/UnsavedChangesDialog
 import FitRunner from './components/Fit/FitRunner'
 
 export default function App() {
-  const { activeProjectId, activeView, loadProjects } = useStore()
+  // Selectors, not the whole store: the fit check updates the store often, and the root must not
+  // re-render every screen for that.
+  const activeProjectId = useStore((s) => s.activeProjectId)
+  const activeView = useStore((s) => s.activeView)
+  const loadProjects = useStore((s) => s.loadProjects)
 
   useEffect(() => {
     loadProjects()

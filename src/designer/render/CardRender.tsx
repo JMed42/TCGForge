@@ -511,9 +511,16 @@ export default function CardRender({ template, card, projectId, pxPerMm, showBle
   // Fit results by layer id. Layers set their entry when their result changes and remove it when
   // they unmount, so the map always matches what is on the card.
   const fitsRef = useRef(new Map<string, FitResult>())
+  const fitsVersion = useRef(0) // bumped when an entry changes
+  const reported = useRef<{ version: number; template: Template | null; card: unknown }>({ version: -1, template: null, card: undefined })
   const pendingImages = useRef(new Set<string>())
-  const fitted = useCallback((id: string, r: FitResult) => { fitsRef.current.set(id, r) }, [])
-  const unfit = useCallback((id: string) => { fitsRef.current.delete(id) }, [])
+  const fitted = useCallback((id: string, r: FitResult) => {
+    const cur = fitsRef.current.get(id)
+    if (cur && JSON.stringify(cur) === JSON.stringify(r)) return
+    fitsRef.current.set(id, r)
+    fitsVersion.current++
+  }, [])
+  const unfit = useCallback((id: string) => { if (fitsRef.current.delete(id)) fitsVersion.current++ }, [])
   const imagePending = useCallback((id: string, pending: boolean) => {
     if (pending) pendingImages.current.add(id)
     else if (pendingImages.current.delete(id)) setImageEpoch((e) => e + 1)
@@ -536,15 +543,20 @@ export default function CardRender({ template, card, projectId, pxPerMm, showBle
     }
   }, [projectId, pxPerMm, scope, assetVersions, fontsReady, template, measureOnly, epoch, fitted, unfit, imagePending])
 
-  // Measure-only: report once layout has settled. Layout effects run children first, and updates
-  // they make re-render synchronously before this microtask runs.
+  // Measure-only: report once layout has settled, and again when a result, the template or the
+  // card changes (a parent re-rendering for another reason must not report again: a listener that
+  // stores the results would re-render that parent and loop). Layout effects run children first,
+  // and updates they make re-render synchronously before this microtask runs.
   const onFitsRef = useRef(onFits)
   onFitsRef.current = onFits
   useLayoutEffect(() => {
     if (!onFitsRef.current || !fontsReady) return undefined
     let cancelled = false
     queueMicrotask(() => {
+      const last = reported.current
       if (cancelled || pendingImages.current.size) return
+      if (last.version === fitsVersion.current && last.template === template && last.card === card) return
+      reported.current = { version: fitsVersion.current, template, card }
       onFitsRef.current?.(Object.fromEntries(fitsRef.current))
     })
     return () => { cancelled = true }

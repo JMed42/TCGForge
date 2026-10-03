@@ -3,6 +3,7 @@ import {
   Type, AlignLeft, Image as ImageIcon, Square, RectangleHorizontal, Circle, Rows3, Group, Eye, EyeOff, Lock, Unlock,
   Plus, ChevronUp, ChevronDown, ChevronRight, Copy, Trash2, GripVertical, FolderOutput, Repeat,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../store'
 import { isContainer } from '../../designer/schema/types.ts'
 import { findRef } from '../../designer/layout/tree.ts'
@@ -37,7 +38,9 @@ const iconBtn = 'p-1 rounded text-text-muted hover:text-text-primary hover:bg-su
 
 // Layer tree, top-most first within each parent (paint order is array order, bottom first).
 export default function LayersPanel() {
-  const { draft, selectedIds, setSelection, toggleSelection, edit } = useStore()
+  const { draft, selectedIds, setSelection, toggleSelection, edit } = useStore(useShallow((s) => ({
+    draft: s.draft, selectedIds: s.selectedIds, setSelection: s.setSelection, toggleSelection: s.toggleSelection, edit: s.edit,
+  })))
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(null) // { id, value, error }

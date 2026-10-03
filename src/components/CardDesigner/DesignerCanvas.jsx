@@ -5,6 +5,7 @@ import {
   AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Group, Ungroup,
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../store'
 import CardRender, { cardPixelSize } from '../../designer/render/CardRender.tsx'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
@@ -15,6 +16,8 @@ import {
   HANDLES, alignBoxes, bounds, contains, distributeBoxes, intersects, moveBox, rectFromPoints, resizeBox, roundBox, scaleInto, snapBox, snapTargets,
 } from '../../designer/editor/geometry.ts'
 import { deleteLayers, duplicateLayers, getLayer, groupLayers, isFramePositioned, setLayerRect, ungroup } from '../../designer/editor/ops.ts'
+import { describeFit } from '../../designer/fit/summary.ts'
+import WorstCase from './WorstCase'
 
 const CSS_PX_PER_MM = 96 / 25.4
 const MIN_ZOOM = 0.25
@@ -53,7 +56,12 @@ export default function DesignerCanvas() {
   const {
     draft, cards, previewCardId, activeProjectId, activeTemplateId, assetVersions, selectedIds,
     setSelection, toggleSelection, edit, beginGesture, editLive, stepPreviewCard, setPreviewCard, templates, templateRules, sampleScope, setSampleScope,
-  } = useStore()
+  } = useStore(useShallow((s) => ({
+    draft: s.draft, cards: s.cards, previewCardId: s.previewCardId, activeProjectId: s.activeProjectId, activeTemplateId: s.activeTemplateId,
+    assetVersions: s.assetVersions, selectedIds: s.selectedIds, setSelection: s.setSelection, toggleSelection: s.toggleSelection, edit: s.edit,
+    beginGesture: s.beginGesture, editLive: s.editLive, stepPreviewCard: s.stepPreviewCard, setPreviewCard: s.setPreviewCard, templates: s.templates,
+    templateRules: s.templateRules, sampleScope: s.sampleScope, setSampleScope: s.setSampleScope,
+  })))
   const samples = useMemo(() => sampleCards({ cards, templates, templateRules, activeTemplateId, sampleScope }), [cards, templates, templateRules, activeTemplateId, sampleScope])
   const fonts = useProjectFonts(activeProjectId, assetVersions)
   const viewportRef = useRef(null)
@@ -61,7 +69,8 @@ export default function DesignerCanvas() {
   const spaceRef = useRef(false)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 40, y: 40 })
-  const [show, setShow] = useState({ bleed: true, safe: true, grid: false, boxes: true })
+  const [show, setShow] = useState({ bleed: true, safe: true, grid: false, boxes: true, fit: true })
+  const designerFit = useStore((s) => s.designerFit)
   const [entered, setEntered] = useState(null) // container id whose children are being edited
   const [hoverId, setHoverId] = useState(null)
   const [marquee, setMarquee] = useState(null)
@@ -318,6 +327,21 @@ export default function DesignerCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, selectedIds, boxOf, report])
 
+  // Editor-only outlines for text that overflows or was hidden on this sample card (measured by
+  // DesignerFitProbe, the same way as the Fit column). Hidden text in a stack takes no room, so
+  // it has no outline; the Properties panel says so.
+  const fitOutlines = useMemo(() => {
+    if (!draft || !designerFit || designerFit.cardId !== (previewCardId ?? null)) return []
+    const out = []
+    for (const [id, r] of Object.entries(designerFit.results)) {
+      if (r.status !== 'overflow' && r.status !== 'hidden') continue
+      const box = isRendered(id) ? boxOf(id) : null
+      if (box && box.w > 0 && box.h > 0) out.push({ id, status: r.status, box, text: describeFit(r) })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, designerFit, previewCardId, boxOf, isRendered, report])
+
   const align = (mode) => {
     const ids = movable(selectedIds)
     if (!ids.length) return
@@ -432,10 +456,11 @@ export default function DesignerCanvas() {
         <ToolButton title="Zoom in (Ctrl+=)" onClick={() => zoomAt(zoom * 1.25)}><ZoomIn size={15} /></ToolButton>
         <ToolButton title="Fit (Ctrl+0)" onClick={fit} testid="zoom-fit"><Maximize size={15} /></ToolButton>
         <div className="w-px h-5 bg-border mx-1" />
-        {[['bleed', 'Bleed'], ['safe', 'Safe'], ['grid', 'Grid'], ['boxes', 'Stacks']].map(([k, label]) => (
+        {[['bleed', 'Bleed'], ['safe', 'Safe'], ['grid', 'Grid'], ['boxes', 'Stacks'], ['fit', 'Fit']].map(([k, label]) => (
           <button
             key={k}
             type="button"
+            title={k === 'fit' ? 'Outline text that overflows (red) or was hidden (grey) on this card' : undefined}
             data-testid={`guide-${k}`}
             onClick={() => setShow((s) => ({ ...s, [k]: !s[k] }))}
             className={`px-1.5 py-0.5 rounded ${show[k] ? 'bg-surface-3 text-accent' : 'hover:bg-surface-2'}`}
@@ -455,6 +480,8 @@ export default function DesignerCanvas() {
         <ToolButton title="Group (Ctrl+G)" testid="group" disabled={!canGroup} onClick={group}><Group size={15} /></ToolButton>
         <ToolButton title="Ungroup (Ctrl+Shift+G)" testid="ungroup" disabled={selectedLayer?.type !== 'group'} onClick={ungroupSelected}><Ungroup size={15} /></ToolButton>
         <div className="flex-1" />
+        <WorstCase draft={draft} layer={selectedLayer} samples={samples.list} onPick={setPreviewCard} />
+        <div className="w-px h-5 bg-border mx-1" />
         {/* Sample-card switcher: step through real cards ([ and ]). */}
         <button
           type="button"
@@ -538,6 +565,13 @@ export default function DesignerCanvas() {
                 <div key={`c-${id}`} data-container-outline={id} className="absolute border border-dashed border-sky-300/60" style={toPx(box)}>
                   <span className="absolute left-0 -top-3.5 px-1 rounded-sm bg-sky-600/80 text-[9px] leading-[14px] text-white whitespace-nowrap">
                     {type === 'stack' ? 'Stack' : 'Group'}{empty ? ' (empty: add layers inside it)' : ''}
+                  </span>
+                </div>
+              ))}
+              {show.fit && fitOutlines.map(({ id, status, box, text }) => (
+                <div key={`f-${id}`} data-fit-outline={id} data-fit-status={status} className={`absolute border-2 border-dashed ${status === 'overflow' ? 'border-red-500/90' : 'border-slate-400/80'}`} style={toPx(box)}>
+                  <span className={`absolute right-0 top-0 px-1 rounded-sm text-[9px] leading-[14px] text-white whitespace-nowrap ${status === 'overflow' ? 'bg-red-600/90' : 'bg-slate-600/90'}`}>
+                    {id}: {text}
                   </span>
                 </div>
               ))}

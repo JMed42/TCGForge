@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../store'
 import { isContainer } from '../../designer/schema/types.ts'
 import { bindableFields } from '../../designer/expr/scope.ts'
@@ -9,6 +10,30 @@ import { getLayer, setSize, updateLayer } from '../../designer/editor/ops.ts'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
 import { Field, NumberField, TextField, SelectField, ColorField, Section } from './editor/fields'
 import BindingInput from './BindingInput'
+import { describeFit } from '../../designer/fit/summary.ts'
+import { textIdsOf } from './WorstCase'
+
+// The fit of the selected text (or of the text in the selected stack) on the sample card, from
+// DesignerFitProbe: measured the same way as the Fit column.
+function FitReadout({ layer, card }) {
+  const designerFit = useStore((s) => s.designerFit)
+  const ids = textIdsOf(layer)
+  if (!ids.length || !designerFit || designerFit.cardId !== (card?.id ?? null)) return null
+  const tone = { overflow: 'text-danger', shrunk: 'text-amber-400', hidden: 'text-text-muted', fits: 'text-success' }
+  return (
+    <div className="col-span-2 text-[11px] space-y-0.5" data-testid="fit-readout">
+      <p className="text-text-muted">On {card ? <span className="text-text-secondary">{card.name}</span> : 'this preview'}:</p>
+      {ids.map((id) => {
+        const r = designerFit.results[id]
+        return (
+          <p key={id} className={r ? tone[r.status] : 'text-text-muted'} data-fit-readout={id}>
+            {ids.length > 1 ? `${id}: ` : ''}{r ? describeFit(r) : 'not on this card (its condition hides it, or it has no text)'}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
 
 // Physical card sizes (spec open question: poker first).
 const SIZE_PRESETS = [
@@ -189,7 +214,10 @@ function TemplateImageButtons({ projectId, layerId, onPath }) {
 }
 
 export default function PropertiesPanel() {
-  const { draft, selectedIds, edit, cards, previewCardId, activeProjectId, assetVersions, cardModel } = useStore()
+  const { draft, selectedIds, edit, cards, previewCardId, activeProjectId, assetVersions, cardModel } = useStore(useShallow((s) => ({
+    draft: s.draft, selectedIds: s.selectedIds, edit: s.edit, cards: s.cards, previewCardId: s.previewCardId,
+    activeProjectId: s.activeProjectId, assetVersions: s.assetVersions, cardModel: s.cardModel,
+  })))
   const fields = useMemo(() => (cardModel.fields.length ? bindingFields(cardModel) : bindableFields(cards)), [cardModel, cards])
   const fonts = useProjectFonts(activeProjectId, assetVersions)
   const card = cards.find((c) => c.id === previewCardId) || null
@@ -232,7 +260,12 @@ export default function PropertiesPanel() {
         </Field>
         <NumberField label="Opacity %" value={Math.round((layer.opacity ?? 1) * 100)} min={0} max={100} onChange={(v) => set('opacity', Math.max(0, Math.min(100, v)) / 100)} />
         {findRef(draft, id)?.parentId && getLayer(draft, findRef(draft, id).parentId)?.type === 'stack' && (
-          <NumberField label="Priority (stack)" value={layer.priority ?? ''} min={0} onChange={(v) => set('priority', v)} />
+          <>
+            <NumberField label="Priority (stack)" value={layer.priority ?? ''} min={0} onChange={(v) => set('priority', v)} />
+            <p className="col-span-2 text-[10px] text-text-muted leading-snug" data-testid="priority-help">
+              When the stack is full, higher numbers give way first: e.g. flavor text 2, card text 1.
+            </p>
+          </>
         )}
       </Section>
 
@@ -264,6 +297,11 @@ export default function PropertiesPanel() {
           </Field>
           <NumberField label="Min size (pt)" value={fit.minPt ?? ''} min={1} step={0.5} onChange={(v) => setIn('fit', 'minPt', v)} />
           <NumberField label="Max size (pt)" value={fit.maxPt ?? ''} min={1} step={0.5} onChange={(v) => setIn('fit', 'maxPt', v)} />
+          <p className="col-span-2 text-[10px] text-text-muted leading-snug" data-testid="fit-help">
+            In this order: shrink down to the min size, tighten the line spacing, then hide. Text that still
+            doesn't fit is flagged as overflow in the Cards screen's Fit column.
+          </p>
+          <FitReadout layer={layer} card={card} />
         </Section>
       )}
 
@@ -307,6 +345,18 @@ export default function PropertiesPanel() {
           </div>
           <SelectField label="Direction" value={layer.direction || 'vertical'} options={['vertical', 'horizontal']} onChange={(v) => set('direction', v)} />
           <NumberField label="Gap (mm)" value={layer.gapMm ?? 0} min={0} step={0.5} onChange={(v) => set('gapMm', v)} />
+          <SelectField
+            wide
+            label="When the text doesn't fit"
+            value={layer.fitOrder || 'shrinkFirst'}
+            options={[['shrinkFirst', 'Shrink text first, then hide'], ['hideFirst', 'Hide first (highest priority number), then shrink']]}
+            onChange={(v) => set('fitOrder', v === 'shrinkFirst' ? undefined : v)}
+          />
+          <p className="col-span-2 text-[10px] text-text-muted leading-snug">
+            Text that sizes to its content shrinks to its min size, tightens its line spacing, and layers set to
+            Hide drop out, highest priority number first. Each layer's own fit settings say what it may do.
+          </p>
+          <FitReadout layer={layer} card={card} />
         </Section>
       )}
 

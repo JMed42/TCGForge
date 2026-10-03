@@ -12,6 +12,7 @@ export const fitInitialState = {
   fitReady: false, // the project's cards, templates, exceptions, signatures and cache are loaded
   fitProgress: { total: 0, pending: 0, staleIds: new Set() }, // background check; staleIds: cards waiting for it
   liveFit: null, // { cardId, templateId, results } for the active card, as typed
+  designerFit: null, // { cardId, draft, results }: the Designer's template as edited, on its sample card
 }
 
 export function createFitSlice(set, get) {
@@ -105,5 +106,6 @@ export function createFitSlice(set, get) {
     },
 
     setLiveFit: (liveFit) => set({ liveFit }),
+    setDesignerFit: (designerFit) => set({ designerFit }),
   }
 }

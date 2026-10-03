@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Undo2, Redo2, Save, RotateCcw } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../store'
 import { sampleCards } from './sampleCards'
 import TopBar from '../Layout/TopBar'
@@ -9,6 +10,7 @@ import TemplateJsonPanel from './TemplateJsonPanel'
 import LayersPanel from './LayersPanel'
 import PropertiesPanel from './PropertiesPanel'
 import ExportControls from './ExportControls'
+import DesignerFitProbe from '../Fit/DesignerFitProbe'
 
 const isTypingTarget = (el) => el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
 
@@ -27,7 +29,11 @@ export default function DesignerView() {
     redo,
     saveDraft,
     discardDraft,
-  } = useStore()
+  } = useStore(useShallow((s) => ({
+    cards: s.cards, draft: s.draft, dirty: s.dirty, history: s.history, activeTemplateId: s.activeTemplateId, previewCardId: s.previewCardId,
+    loadTemplates: s.loadTemplates, setPreviewCard: s.setPreviewCard, activeProjectId: s.activeProjectId,
+    undo: s.undo, redo: s.redo, saveDraft: s.saveDraft, discardDraft: s.discardDraft,
+  })))
   const [saveError, setSaveError] = useState(null)
   const [sideTab, setSideTab] = useState('design')
 
@@ -131,6 +137,7 @@ export default function DesignerView() {
           )}
         </div>
       </div>
+      <DesignerFitProbe />
     </div>
   )
 }
