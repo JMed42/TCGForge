@@ -31,6 +31,11 @@ contextBridge.exposeInMainWorld('api', {
   importProject: (jsonData) => ipcRenderer.invoke('importProject', jsonData),
   exportCards: (projectId, format) => ipcRenderer.invoke('exportCards', projectId, format),
 
+  // Card import (CSV / XLSX)
+  readSpreadsheet: (projectId, options) => ipcRenderer.invoke('readSpreadsheet', projectId, options),
+  previewImport: (token, mapping, options) => ipcRenderer.invoke('previewImport', token, mapping, options),
+  commitImport: (token, mapping, options) => ipcRenderer.invoke('commitImport', token, mapping, options),
+
   // Card Designer
   getTemplateRules: (projectId) => ipcRenderer.invoke('getTemplateRules', projectId),
   saveTemplateRules: (projectId, rules) => ipcRenderer.invoke('saveTemplateRules', projectId, rules),

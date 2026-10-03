@@ -3,6 +3,7 @@ const path = require('path');
 const database = require('./database');
 const { initDatabase, registerIpcHandlers } = database;
 const { registerCardDesignerIpc } = require('./cardDesigner/ipc');
+const { registerImportIpc } = require('./import/ipc');
 const { migrateLegacyData } = require('./legacyData');
 const assets = require('./assets');
 const { RenderService } = require('./renderWindow');
@@ -116,6 +117,13 @@ app.whenReady().then(async () => {
       shell,
       getWindow: () => mainWindow,
       render,
+    });
+    registerImportIpc(ipcMain, {
+      queryCards: database.queryCards,
+      getProject: database.getProject,
+      importCards: database.importCards,
+      dialog,
+      getWindow: () => mainWindow,
     });
     createWindow();
   } catch (err) {

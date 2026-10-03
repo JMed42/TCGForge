@@ -173,6 +173,10 @@ function queryCards(projectId, filters = {}) {
   return queryAll(sql, params);
 }
 
+function getProject(id) {
+  return queryOne('SELECT * FROM projects WHERE id = ?', [id]);
+}
+
 function getCard(id) {
   return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
 }
@@ -221,6 +225,41 @@ function inTransaction(fn) {
   }
   saveDatabase();
   return out;
+}
+
+// ── CARD IMPORT ───────────────────────────────────────────
+// Planned rows from electron/import/cardImport.js buildPlan, written in one transaction.
+const IMPORT_FIELDS = ['name', 'type', 'set_name', 'rarity', 'cost', 'power', 'toughness',
+  'rules_text', 'flavor_text', 'tags', 'custom_fields', 'notes', 'image_path'];
+
+function importCards(projectId, planRows) {
+  let created = 0;
+  let updated = 0;
+  inTransaction(() => {
+    for (const row of planRows) {
+      const data = normalizeCardData(row.data);
+      if (row.action === 'create') {
+        db.run(
+          `INSERT INTO cards (project_id, name, type, set_name, rarity, cost, power, toughness,
+            rules_text, flavor_text, tags, custom_fields, notes, image_path)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [projectId, ...IMPORT_FIELDS.map((k) => (data[k] !== undefined ? data[k] : k === 'custom_fields' ? '{}' : ''))]
+        );
+        created++;
+      } else if (row.action === 'update') {
+        const card = queryOne('SELECT project_id FROM cards WHERE id = ?', [row.cardId]);
+        if (!card || card.project_id !== projectId) throw new Error(`card ${row.cardId} is not in this project`);
+        const keys = IMPORT_FIELDS.filter((k) => data[k] !== undefined);
+        if (!keys.length) continue;
+        db.run(
+          `UPDATE cards SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`,
+          [...keys.map((k) => data[k]), row.cardId]
+        );
+        updated++;
+      }
+    }
+  });
+  return { created, updated };
 }
 
 // ── TEMPLATE RULES ────────────────────────────────────────
@@ -516,7 +555,7 @@ function registerIpcHandlers(ipcMain) {
 }
 
 module.exports = {
-  initDatabase, registerIpcHandlers, queryCards, getCard, tagList, normalizeCardData,
+  initDatabase, registerIpcHandlers, queryCards, getCard, getProject, tagList, normalizeCardData,
   listTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
-  listTemplateRules, saveTemplateRules, listAssets, applyAssetChanges, inTransaction,
+  listTemplateRules, saveTemplateRules, listAssets, applyAssetChanges, inTransaction, importCards,
 };
