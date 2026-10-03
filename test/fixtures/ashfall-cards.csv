@@ -1,0 +1,8 @@
+Card Name,Type,Rarity,Cost,ATK,HP,Text,Flavour,Faction,Keywords,Release
+Ember Drake,Creature — Dragon,Rare,6,4,3,"Flying.
+When Ember Drake enters play, deal 2 damage to each opposing creature.",The mountains remember.,Ember,"dragon, fire",2026-01-01
+Cinder Whelp,Creature — Dragon,Common,2,2,1,Haste.,"Small, but already hungry.",Ember,dragon,
+Tidecaller's Hymn,Spell,Uncommon,3,,,Return target creature to its owner's hand. Draw a card.,Café songs at low tide.,Tide,,
+Ashen Golem,Creature — Golem,Rare,5,,,,,Ember,,
+,,Common,1,1,1,A row without a name,,,,
+Cinder Whelp,Creature — Dragon,Common,2,2,2,Duplicate name in the file,,Ember,,

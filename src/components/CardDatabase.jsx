@@ -5,6 +5,7 @@ import TopBar from './Layout/TopBar';
 import { CardTable, CardFilters, CardEditor, CardBulkActions } from './Cards';
 import CardPreviewPane from './Cards/CardPreviewPane';
 import TemplateRulesDialog from './Cards/TemplateRulesDialog';
+import ImportDialog from './Cards/ImportDialog';
 
 const PANE_KEY = 'tcgforge.cardsPreview';
 
@@ -103,6 +104,7 @@ export default function CardDatabase() {
       {selectedCount > 0 && <CardBulkActions />}
       {editingCard !== null && <CardEditor />}
       {rulesOpen && <TemplateRulesDialog onClose={() => setRulesOpen(false)} />}
+      {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

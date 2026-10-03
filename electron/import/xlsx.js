@@ -1,8 +1,8 @@
 // Minimal .xlsx reader for the card import, with no dependency: a zip directory reader
 // (stored or deflated entries, inflated with Node's zlib) and a small XML scanner for the
-// workbook, its relationships, shared strings and worksheets. Cell values only: text, numbers,
-// booleans, errors and the cached results of formulas. No styles, so dates arrive as Excel
-// serial numbers.
+// workbook, its relationships, shared strings, number formats and worksheets. Cell values only:
+// text, numbers, booleans, errors and the cached results of formulas. Cells with a date number
+// format become ISO dates ("2026-01-01", or "2026-01-01 14:30" with a time).
 //
 // Hostile files: sizes and entry counts are capped before inflating, encrypted and zip64
 // archives are refused, and entry names are only ever looked up, never written to disk.
@@ -161,6 +161,41 @@ function sharedStrings(xml) {
   return list;
 }
 
+// Style index -> is a date format. Built-in date formats are ids 14-22 and 45-47; custom ones
+// are recognised by d/m/y/h/s outside quotes, escapes and [colour] sections.
+function dateStyles(xml) {
+  const isDate = [];
+  if (!xml) return isDate;
+  const custom = new Map();
+  let inXfs = false;
+  scan(xml, {
+    onOpen: (n, a) => {
+      if (n === 'numFmt') custom.set(Number(a.numFmtId), a.formatCode || '');
+      else if (n === 'cellXfs') inXfs = true;
+      else if (n === 'xf' && inXfs) {
+        const id = Number(a.numFmtId || 0);
+        const code = custom.get(id);
+        const builtin = (id >= 14 && id <= 22) || (id >= 45 && id <= 47);
+        const customDate = code !== undefined && /[dmyhs]/i.test(code.replace(/"[^"]*"|\\.|\[[^\]]*\]/g, ''));
+        isDate.push(builtin || customDate);
+      }
+    },
+    onClose: (n) => { if (n === 'cellXfs') inXfs = false; },
+  });
+  return isDate;
+}
+
+// Excel serial (1900 date system) -> "YYYY-MM-DD" or "YYYY-MM-DD HH:MM".
+function serialToIso(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 1 || n > 2958465) return v;
+  const ms = Math.round((n - 25569) * 86400) * 1000; // 25569 = 1970-01-01
+  const d = new Date(ms);
+  const pad = (x) => String(x).padStart(2, '0');
+  const date = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  return Number.isInteger(n) ? date : `${date} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
 function colIndex(ref) {
   const m = /^([A-Z]+)/.exec(ref || '');
   if (!m) return -1;
@@ -174,7 +209,7 @@ function numberText(v) {
   return Number.isFinite(n) ? String(n) : v;
 }
 
-function sheetRows(xml, strings) {
+function sheetRows(xml, strings, isDate = []) {
   const rows = [];
   let row = null;
   let rowIdx = -1;
@@ -194,7 +229,7 @@ function sheetRows(xml, strings) {
         const c = colIndex(a.r);
         const col = c >= 0 ? c : row.length;
         if (col >= MAX_COLS) throw new Error(`more than ${MAX_COLS} columns`);
-        cell = { col, type: a.t || 'n', v: '', inline: '' };
+        cell = { col, type: a.t || 'n', v: '', inline: '', date: Boolean(isDate[Number(a.s || 0)]) };
         if (self) { cell = null; }
       } else if (n === 'rPh') skip++;
       else if (cell && n === 'v') into = 'v';
@@ -210,7 +245,7 @@ function sheetRows(xml, strings) {
           case 'inlineStr': value = cell.inline; break;
           case 'b': value = cell.v === '1' ? 'TRUE' : 'FALSE'; break;
           case 'str': case 'e': value = cell.v; break;
-          default: value = cell.v === '' ? '' : numberText(cell.v);
+          default: value = cell.v === '' ? '' : cell.date ? serialToIso(cell.v) : numberText(cell.v);
         }
         row[cell.col] = value;
         cell = null;
@@ -257,18 +292,21 @@ function readXlsx(buf) {
   });
   if (!sheets.length) throw new Error('the workbook has no worksheets');
   let strings = null;
+  let dates = null;
   const stringsPath = [...rels.values()].find((r) => /sharedStrings$/.test(r.type));
+  const stylesPath = [...rels.values()].find((r) => /\/styles$/.test(r.type));
   return {
     sheetNames: sheets.map((s) => s.name),
     readSheet(which = 0) {
       const sheet = typeof which === 'number' ? sheets[which] : sheets.find((s) => s.name === which);
       if (!sheet) throw new Error(`no sheet "${which}"`);
       if (!strings) strings = sharedStrings(stringsPath ? zip.read(resolvePath(baseDir, stringsPath.target)) : zip.read(`${baseDir}/sharedStrings.xml`));
+      if (!dates) dates = dateStyles(stylesPath ? zip.read(resolvePath(baseDir, stylesPath.target)) : null);
       const xml = zip.read(sheet.path);
       if (xml === null) throw new Error(`sheet "${sheet.name}" is missing from the file`);
-      return sheetRows(xml, strings);
+      return sheetRows(xml, strings, dates);
     },
   };
 }
 
-module.exports = { readXlsx, readZip, scan, decodeXml, colIndex };
+module.exports = { readXlsx, readZip, scan, decodeXml, colIndex, dateStyles, serialToIso };

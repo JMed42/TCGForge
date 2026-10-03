@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // Projects
@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('api', {
   exportCards: (projectId, format) => ipcRenderer.invoke('exportCards', projectId, format),
 
   // Card import (CSV / XLSX)
+  // Path of a File from an <input type="file"> or a drop (File.path is gone in Electron 32+).
+  pathForFile: (file) => webUtils.getPathForFile(file),
   readSpreadsheet: (projectId, options) => ipcRenderer.invoke('readSpreadsheet', projectId, options),
   previewImport: (token, mapping, options) => ipcRenderer.invoke('previewImport', token, mapping, options),
   commitImport: (token, mapping, options) => ipcRenderer.invoke('commitImport', token, mapping, options),

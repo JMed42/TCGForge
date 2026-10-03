@@ -168,3 +168,30 @@ test('import IPC: read, change sheet, preview, commit once', async () => {
   assert.deepEqual([csv.kind, csv.headers, csv.sampleRows], ['csv', ['Name', 'Cost'], [['Ash, the Elder', '4']]]);
   await assert.rejects(() => ipc.call('readSpreadsheet', p.id, { inputPath: path.join(dir, 'old.xls') }), /ENOENT|not supported/);
 });
+
+// ----- files saved by Excel 16 (test/fixtures) -----
+
+test('a workbook saved by Excel: sheets, formulas, line breaks and date formats', () => {
+  const wb = readXlsx(fs.readFileSync(path.join(__dirname, 'fixtures', 'ashfall.xlsx')));
+  assert.deepEqual(wb.sheetNames, ['Notes', 'Cards']);
+  const rows = wb.readSheet('Cards');
+  assert.deepEqual(rows[0], ['Card Name', 'Type', 'Rarity', 'Cost', 'ATK', 'HP', 'Text', 'Flavour', 'Faction', 'Keywords', 'Release']);
+  assert.equal(rows[1][1], 'Creature \u2014 Dragon');
+  assert.match(rows[1][6], /^Flying\.\r?\nWhen Ember Drake/);
+  assert.equal(rows[1][10], '2026-01-01', 'date-formatted serial becomes an ISO date');
+  assert.equal(rows[4][3], '5', 'formula cell gives its cached value');
+  const table = cardImport.toTable(rows);
+  const mapping = cardImport.suggestMapping(table.headers);
+  assert.deepEqual(mapping, ['name', 'type', 'rarity', 'cost', 'power', 'toughness', 'rules_text', 'flavor_text', 'custom:faction', 'tags', 'custom:release']);
+  const plan = cardImport.buildPlan(table, mapping);
+  assert.deepEqual(plan.counts, { create: 4, update: 0, skip: 2, empty: 0 });
+  assert.equal(plan.rows[0].data.rules_text, 'Flying.\nWhen Ember Drake enters play, deal 2 damage to each opposing creature.');
+});
+
+test('the same sheet saved by Excel as CSV (Windows-1252) reads the same', () => {
+  const { delimiter, rows } = readCsv(fs.readFileSync(path.join(__dirname, 'fixtures', 'ashfall-cards.csv')));
+  assert.equal(delimiter, ',');
+  assert.equal(rows[1][1], 'Creature \u2014 Dragon');
+  assert.equal(rows[3][7], 'Caf\u00e9 songs at low tide.');
+  assert.equal(rows[1][10], '2026-01-01');
+});
