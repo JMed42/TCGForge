@@ -193,32 +193,17 @@ export default function ProjectSettings() {
           )}
         </div>
 
-        {/* Card Schema Editor Section */}
+        {/* Card types and fields live on their own screen now */}
         <div className="bg-surface-1 rounded-xl p-6 border border-border">
-          <h3 className="text-lg font-bold text-text-primary mb-4">
-            Card Schema
-          </h3>
+          <h3 className="text-lg font-bold text-text-primary mb-2">Card types and fields</h3>
           <p className="text-sm text-text-secondary mb-4">
-            Define the structure of cards in this project
+            The fields your cards have (cost, ATK, effect…) are set per card type on the Card Types screen.
           </p>
-          <textarea
-            value={editSchema}
-            onChange={(e) => {
-              setEditSchema(e.target.value)
-              validateSchema(e.target.value)
-            }}
-            className="w-full px-4 py-2 bg-surface-3 border border-border rounded-lg text-text-primary font-mono text-sm focus:outline-none focus:border-accent resize-none"
-            rows={14}
-          />
-          {schemaError && (
-            <p className="text-sm text-red-500 mt-2">{schemaError}</p>
-          )}
           <button
-            onClick={handleSaveChanges}
-            disabled={!!schemaError}
-            className="mt-4 px-4 py-2 bg-accent hover:brightness-110 rounded-lg text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => useStore.getState().setActiveView('types')}
+            className="px-4 py-2 bg-accent hover:brightness-110 rounded-lg text-white font-medium transition-all"
           >
-            Save Schema
+            Open Card Types
           </button>
         </div>
 

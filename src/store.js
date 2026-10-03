@@ -2,10 +2,12 @@ import { create } from 'zustand'
 import { toUiCard, toUiProject } from './utils/cardData'
 import { createDesignerSlice } from './designerSlice'
 import { createCardsSlice } from './cardsSlice'
+import { createCardModelSlice } from './cardModelSlice'
 
 export const useStore = create((set, get) => ({
   ...createDesignerSlice(set, get),
   ...createCardsSlice(set, get),
+  ...createCardModelSlice(set, get),
 
   // Projects
   projects: [],
@@ -52,18 +54,16 @@ export const useStore = create((set, get) => ({
     get().resetDesigner()
     get().resetCardsScreen()
     set({ activeProjectId: id, activeView: 'cards' })
+    await get().loadCardModel()
     await get().loadCards()
     await get().loadDocuments()
   },
 
   createProject: async (data) => {
     try {
-      await window.api?.createProject?.(data)
+      const created = await window.api?.createProject?.(data)
       await get().loadProjects()
-      const { projects } = get()
-      if (projects.length > 0) {
-        await get().setActiveProject(projects[projects.length - 1].id)
-      }
+      if (created?.id) await get().setActiveProject(created.id)
     } catch (error) {
       console.error('Failed to create project:', error)
     }

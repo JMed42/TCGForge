@@ -4,6 +4,7 @@ import {
   Database,
   Layers,
   BookOpen,
+  Shapes,
   Settings,
   Download,
   ChevronDown,
@@ -32,8 +33,9 @@ export default function Sidebar() {
 
   const navItems = [
     { icon: Database, label: 'Cards', view: 'cards' },
+    { icon: Shapes, label: 'Card Types', view: 'types' },
     { icon: Layers, label: 'Designer', view: 'designer' },
-    { icon: BookOpen, label: 'Rules & Docs', view: 'rules' },
+    { icon: BookOpen, label: 'Game Docs', view: 'rules' },
     { icon: Settings, label: 'Settings', view: 'settings' },
   ]
 

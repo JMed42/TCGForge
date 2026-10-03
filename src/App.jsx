@@ -5,6 +5,7 @@ import ProjectSelector from './components/Projects/ProjectSelector'
 import CardDatabase from './components/CardDatabase'
 import RulesWorkspace from './components/RulesWorkspace'
 import ProjectSettings from './components/ProjectSettings'
+import CardTypesView from './components/CardTypes/CardTypesView'
 import { DesignerView } from './components/CardDesigner'
 import UnsavedChangesDialog from './components/CardDesigner/UnsavedChangesDialog'
 
@@ -36,6 +37,7 @@ export default function App() {
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         {activeView === 'cards' && <CardDatabase />}
+        {activeView === 'types' && <CardTypesView />}
         {activeView === 'designer' && <DesignerView />}
         {activeView === 'rules' && <RulesWorkspace />}
         {activeView === 'settings' && <ProjectSettings />}

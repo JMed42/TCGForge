@@ -1,55 +1,27 @@
 import { useState } from 'react'
 import { useStore } from '../../store'
-import { X, ChevronDown, ChevronRight, Settings2 } from 'lucide-react'
-
-const DEFAULT_CARD_SCHEMA = {
-  fields: [
-    { name: 'name',        type: 'text',     label: 'Card Name',    required: true },
-    { name: 'element',     type: 'select',   label: 'Element',      options: ['Fire', 'Water', 'Earth', 'Air', 'Light', 'Dark'] },
-    { name: 'class',       type: 'select',   label: 'Class',        options: ['Warrior', 'Mage', 'Rogue', 'Paladin'] },
-    { name: 'cost',        type: 'number',   label: 'Mana Cost' },
-    { name: 'power',       type: 'number',   label: 'Attack Power' },
-    { name: 'health',      type: 'number',   label: 'Health' },
-    { name: 'description', type: 'textarea', label: 'Description' },
-    { name: 'rarity',      type: 'select',   label: 'Rarity',       options: ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'] },
-  ],
-}
+import { X } from 'lucide-react'
 
 export default function ProjectForm({ project, onClose }) {
   const { createProject, updateProject } = useStore()
   const [name, setName]               = useState(project?.name || '')
   const [description, setDescription] = useState(project?.description || '')
-  const [cardSchema, setCardSchema]   = useState(
-    JSON.stringify(project?.cardSchema || DEFAULT_CARD_SCHEMA, null, 2)
-  )
-  const [schemaError, setSchemaError] = useState('')
+  const [schemaError, setSchemaError] = useState('') // "name is required"
   const [isSaving, setIsSaving]       = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(false)
-
-  const validateSchema = (schemaStr) => {
-    try {
-      JSON.parse(schemaStr)
-      setSchemaError('')
-      return true
-    } catch (error) {
-      setSchemaError(`Invalid JSON: ${error.message}`)
-      return false
-    }
-  }
+  const [starter, setStarter] = useState('blank')
 
   const handleSave = async () => {
     if (!name.trim()) {
       setSchemaError('Project name is required')
       return
     }
-    if (!validateSchema(cardSchema)) return
 
     setIsSaving(true)
     try {
       const data = {
         name: name.trim(),
         description: description.trim(),
-        cardSchema: JSON.parse(cardSchema),
+        ...(project?.id ? {} : { starter }),
       }
       if (project?.id) {
         await updateProject(project.id, data)
@@ -109,47 +81,28 @@ export default function ProjectForm({ project, onClose }) {
             />
           </div>
 
-          {/* Advanced: Card Schema */}
-          <div className="border border-border rounded-lg overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-surface-3 hover:bg-surface-4 transition-colors text-left"
-            >
-              <div className="flex items-center gap-2 text-text-secondary">
-                <Settings2 size={15} />
-                <span className="text-sm font-medium">Advanced — Card Schema</span>
-              </div>
-              {showAdvanced
-                ? <ChevronDown size={16} className="text-text-muted" />
-                : <ChevronRight size={16} className="text-text-muted" />
-              }
-            </button>
-
-            {showAdvanced && (
-              <div className="p-4 bg-surface-1 border-t border-border space-y-3">
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  JSON definition of custom fields for cards in this project. The default schema works for most games — only edit this if you need fields beyond the built-in ones (name, type, set, cost, power, toughness, etc.).
-                </p>
-                <textarea
-                  value={cardSchema}
-                  onChange={(e) => {
-                    setCardSchema(e.target.value)
-                    validateSchema(e.target.value)
-                  }}
-                  className="w-full px-3 py-2.5 bg-surface-0 border border-border rounded-lg text-text-primary font-mono text-xs focus:outline-none focus:border-accent resize-none leading-relaxed"
-                  rows={10}
-                  spellCheck={false}
-                />
-                {schemaError && (
-                  <p className="text-xs text-danger">{schemaError}</p>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Starting card types (new projects) */}
+          {!project && (
+            <div className="space-y-2">
+              <span className="block text-sm font-semibold text-text-primary">Start with</span>
+              {[
+                ['blank', 'Blank', 'One card type with Name, Cost, Card text and Art. Add your own fields in Card Types.'],
+                ['classic', 'Classic TCG fields', 'Type line, set, rarity, cost, power, toughness, card text, flavor text, tags, notes and art.'],
+              ].map(([value, title, text]) => (
+                <label key={value} className={`flex gap-3 p-3 rounded-lg border cursor-pointer ${starter === value ? 'border-accent bg-accent/10' : 'border-border hover:bg-surface-3'}`}>
+                  <input type="radio" name="starter" value={value} checked={starter === value} onChange={() => setStarter(value)} className="mt-1 accent-accent" data-starter={value} />
+                  <span>
+                    <span className="block text-sm text-text-primary">{title}</span>
+                    <span className="block text-xs text-text-muted">{text}</span>
+                  </span>
+                </label>
+              ))}
+              <p className="text-xs text-text-muted">You can rename types and add or remove fields at any time in Card Types.</p>
+            </div>
+          )}
 
           {/* Name-required error (shown outside advanced section) */}
-          {schemaError && schemaError === 'Project name is required' && (
+          {schemaError && (
             <p className="text-xs text-danger -mt-2">{schemaError}</p>
           )}
 
