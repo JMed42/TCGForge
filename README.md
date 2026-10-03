@@ -5,11 +5,12 @@ A lightweight desktop app for trading card game developers. Manage cards, write 
 ## Features
 
 - **Multi-Project Support** — Switch between unlimited game projects, each with their own cards and documents
-- **Card Database Manager** — Spreadsheet-style grid (arrow keys, type to edit, undo) with a live render of the selected card beside it, filtering, sorting, tagging, bulk operations and custom fields. Import cards from CSV or Excel (.xlsx) with column mapping and a preview before anything is written.
-- **Template Rules** — Pick each card's template by rule (`type == "Unit"` → Unit frame), or choose one per card. Batch exports and print sheets can follow the rules.
-- **Rules & GDD Editor** — Rich text editor with document tree, folder organization, rule tagging, and cross-referencing
+- **Card Types** — Define your game's own card types (Unit, Spell, Equipment…) and the fields each one has (cost, ATK, DEF, Action Rating, attunement cost…): text, long text, number, choice, yes/no, image or tags. Each type has a default template.
+- **Cards** — Two tabs over the same cards, with a live render beside them. **Cards**: a list and a form with the card type's fields, saved as you type. **Database**: a spreadsheet grid for batch edits — copy and paste blocks with Excel or Google Sheets, fill down, set a field on many cards, filter on any field, undo every batch in one step. Import cards from CSV or Excel (.xlsx) onto your fields, with a preview before anything is written.
+- **Template Assignment** — Each card type has its template; exceptions pick another for some cards (`rarity == "Mythic"` → foil frame); any card can choose its own. Batch exports and print sheets can follow it.
+- **Clipboard Art** — Copy an image anywhere (a browser, an image editor, a file in Explorer) and press Paste on a card's art, in the preview, on an art cell, or on a template's image layer.
+- **Game Docs** — Your game's rulebook, lore and design notes: rich text documents in folders, with numbered rule entries
 - **Card Designer** — Visual template designer: zoom and pan, bleed/trim/safe guides, drag, resize, snapping, multi-select, align and distribute, groups and auto-layout stacks, a layer tree, and a properties panel with a binding picker (`{{name}}`, `{{upper(name)}}`, `visibleIf` conditions). Layouts are anchored in mm, so changing the card size reflows them. Step through real cards while you design. Export PNG (any dpi), vector PDF, all cards at once, or print-and-play sheets (Letter/A4, bleed, crop marks). Share templates as `.tcgtemplate` files. What the editor shows is what exports.
-- **Card Art** — Attach art in the card editor. Images are copied into the project.
 - **SQLite Storage** — Fast local database with JSON import/export for portability
 - **Dark Theme** — Purpose-built dark interface designed for long sessions
 
@@ -79,7 +80,8 @@ TCGForge/
 │   │   ├── Projects/    # Project selector, form, switcher
 │   │   ├── Cards/       # Card table, editor, filters, bulk actions
 │   │   ├── CardDesigner/ # Designer canvas, layers, properties, export
-│   │   └── Rules/       # Document tree, TipTap editor, toolbar
+│   │   ├── CardTypes/   # Card types and fields
+│   │   └── Rules/       # Game Docs: document tree, TipTap editor, toolbar
 │   └── index.css        # Tailwind + custom styles
 ├── package.json
 ├── vite.config.js
