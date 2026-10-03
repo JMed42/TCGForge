@@ -100,6 +100,7 @@ const stackLayer = z
     type: z.literal('stack'),
     direction: z.enum(['vertical', 'horizontal']).optional(),
     gapMm: z.number().min(0).max(500).optional(),
+    fitOrder: z.enum(['shrinkFirst', 'hideFirst']).optional(),
     get children() { return z.array(layer) },
   })
   .strict()

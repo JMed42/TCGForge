@@ -79,6 +79,9 @@ export interface StackLayer extends LayerBase {
   type: 'stack'
   direction?: 'vertical' | 'horizontal'
   gapMm?: number
+  // ext: when the text doesn't fit, shrink first and then hide (default, the spec's answer to its
+  // open question), or hide first
+  fitOrder?: 'shrinkFirst' | 'hideFirst'
   children: Layer[]
 }
 

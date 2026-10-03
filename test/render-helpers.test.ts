@@ -4,16 +4,20 @@ import { fitText, STEP_PT } from '../src/designer/render/fitText.ts'
 import { parseRichText, plainText } from '../src/designer/render/markup.ts'
 import { assetUrl, checkSrc, assetKey } from '../src/designer/render/assetUrl.ts'
 
-// A fake layout: text "needs" a given height at a given size: height grows linearly with size
-// and line height. Fits when size * lineHeight * lines <= box.
-const layout = (lines: number, box: number) => (pt: number, lh: number) => pt * lh * lines > box
+// A fake layout in which 1 pt is 1 px: text needs size * lineHeight * lines of height. More fit
+// cases (stacks, priorities) are in fit-engine.test.ts.
+const PX_PER_MM = 72 / 25.4
+const layout = (lines: number, box: number) => (pt: number, lh: number) => ({ needH: pt * lh * lines, roomH: box, needW: 100, roomW: 100 })
+const fit = (basePt: number, lh: number, minPt: number, strategy: Array<'shrink' | 'tightenLeading' | 'hide'>, measure: ReturnType<typeof layout>) =>
+  fitText({ basePt, baseLineHeight: lh, minPt, strategy }, measure, PX_PER_MM)
 
 test('fits as-is', () => {
-  assert.deepEqual(fitText(10, 1.2, 6, ['shrink'], layout(2, 100)), { status: 'fits', pt: 10, lineHeight: 1.2 })
+  const r = fit(10, 1.2, 6, ['shrink'], layout(2, 100))
+  assert.deepEqual([r.status, r.pt, r.lineHeight, r.basePt], ['fits', 10, 1.2, 10])
 })
 
 test('shrinks to the largest 0.25 pt step that fits', () => {
-  const r = fitText(10, 1.2, 6, ['shrink'], layout(4, 40)) // fits when pt <= 8.33
+  const r = fit(10, 1.2, 6, ['shrink'], layout(4, 40)) // fits when pt <= 8.33
   assert.equal(r.status, 'shrunk')
   assert.equal(r.pt, 8.25)
   assert.equal((10 - r.pt) % STEP_PT, 0)
@@ -21,21 +25,21 @@ test('shrinks to the largest 0.25 pt step that fits', () => {
 
 test('then tightens leading, then hides or flags overflow', () => {
   // At min size 6 with lh 1.2: 6*1.2*5 = 36 > 32. lh 1.05: 31.5 fits.
-  const tight = fitText(10, 1.2, 6, ['shrink', 'tightenLeading'], layout(5, 32))
+  const tight = fit(10, 1.2, 6, ['shrink', 'tightenLeading'], layout(5, 32))
   assert.deepEqual([tight.status, tight.pt, tight.lineHeight], ['shrunk', 6, 1.05])
-  const hidden = fitText(10, 1.2, 6, ['shrink', 'hide'], layout(50, 32))
+  const hidden = fit(10, 1.2, 6, ['shrink', 'hide'], layout(50, 32))
   assert.equal(hidden.status, 'hidden')
-  const over = fitText(10, 1.2, 6, ['shrink'], layout(50, 32))
+  const over = fit(10, 1.2, 6, ['shrink'], layout(50, 32))
   assert.deepEqual([over.status, over.pt], ['overflow', 6])
-  assert.equal(fitText(10, 1.2, 6, [], layout(50, 32)).status, 'overflow', 'no strategy: flag only')
+  assert.equal(fit(10, 1.2, 6, [], layout(50, 32)).status, 'overflow', 'no strategy: flag only')
 })
 
 test('binary search matches a linear scan', () => {
   for (let box = 5; box < 200; box += 7) {
     const fn = layout(3, box)
     let expected = 6
-    for (let pt = 12; pt >= 6; pt -= STEP_PT) if (!fn(pt, 1.2)) { expected = pt; break }
-    const r = fitText(12, 1.2, 6, ['shrink'], fn)
+    for (let pt = 12; pt >= 6; pt -= STEP_PT) { const m = fn(pt, 1.2); if (m.needH <= m.roomH + 0.5) { expected = pt; break } }
+    const r = fit(12, 1.2, 6, ['shrink'], fn)
     if (r.status !== 'overflow') assert.equal(r.pt, expected, `box ${box}`)
   }
 })

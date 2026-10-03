@@ -122,9 +122,11 @@ const DEFAULTS: Record<LayerKind, { layer: Omit<Layer, 'id'>; w: number; h: numb
 
 // A new stack starts with two flowing text blocks, so it's visible and shows what it does: the
 // first grows with its text and pushes the second down.
-const STACK_STARTER: Array<{ kind: LayerKind; text: string; italic?: boolean }> = [
+// The second block is a flavor line: it moves down as the card text grows, and when the stack is
+// full it is hidden (priority 2 gives way first) before the card text shrinks below its minimum.
+const STACK_STARTER: Array<{ kind: LayerKind; text: string; italic?: boolean; extra?: Partial<Layer> }> = [
   { kind: 'richText', text: 'Card text goes here. When this text gets longer, the line below moves down.' },
-  { kind: 'text', text: 'Second block (moves down)', italic: true },
+  { kind: 'text', text: 'Flavor line (moves down; hidden first when the stack is full)', italic: true, extra: { priority: 2, fit: { strategy: ['hide'] } } as Partial<Layer> },
 ]
 
 /**
@@ -138,7 +140,7 @@ export function addLayer(t: Template, kind: LayerKind, parentId: string | null =
   for (const s of STACK_STARTER) {
     const child = addOne(out, s.kind, added.id)
     const layer = getLayer(child.template, child.id) as Layer & { style?: Record<string, unknown> }
-    out = updateLayer(child.template, child.id, { text: s.text, style: { ...layer.style, ...(s.italic ? { italic: true } : {}), valign: 'top' } } as Partial<Layer>)
+    out = updateLayer(child.template, child.id, { text: s.text, style: { ...layer.style, ...(s.italic ? { italic: true } : {}), valign: 'top' }, ...s.extra } as Partial<Layer>)
   }
   return { template: out, id: added.id }
 }

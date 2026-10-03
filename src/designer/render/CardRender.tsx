@@ -2,7 +2,7 @@
 // fixed-size container measured in mm). The Designer canvas, the PNG export and the PDF/print
 // sheets all render through this component, so what the editor shows is what exports.
 
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import type { Box, ImageLayer, Layer, ShapeLayer, StackLayer, GroupLayer, Template, TextLayer, IconRepeatLayer } from '../schema/types.ts'
 import { resolveFrame, lengthMm } from '../layout/frame.ts'
@@ -12,8 +12,8 @@ import { cardScope } from '../expr/scope.ts'
 import { assetUrl, checkSrc } from './assetUrl.ts'
 import type { AssetVersions } from './assetUrl.ts'
 import { parseRichText } from './markup.ts'
-import { fitText, ptToPx, DEFAULT_MIN_PT } from './fitText.ts'
-import type { FitResult } from './fitText.ts'
+import { fitStack, fitText, ptToPx, DEFAULT_MIN_PT } from './fitText.ts'
+import type { FitResult, StackItem, StackMeasure, StackState } from './fitText.ts'
 
 export interface RenderReport {
   warnings: string[]
@@ -28,6 +28,10 @@ export interface CardRenderProps {
   showBleed?: boolean // include the bleed area (print / editor); otherwise trim size with rounded corners
   assetVersions?: AssetVersions
   onReady?: (report: RenderReport) => void // fonts loaded, images settled, text fitted
+  // Measure-only (fit checks): images whose size is set by their frame are not loaded, and
+  // onFits reports the fit results as soon as layout is done.
+  measureOnly?: boolean
+  onFits?: (fits: Record<string, FitResult>) => void
 }
 
 interface Ctx {
@@ -36,12 +40,19 @@ interface Ctx {
   scope: Scope
   versions?: AssetVersions
   fontsReady: boolean
+  measureOnly: boolean
+  epoch: string // changes when layout can move without a prop change (fonts, images loading)
   warn: (id: string, msg: string) => void
   fitted: (id: string, r: FitResult) => void
+  unfit: (id: string) => void
+  imagePending: (id: string, pending: boolean) => void
 }
 
 const RenderCtx = createContext<Ctx | null>(null)
 const useRender = () => useContext(RenderCtx)!
+
+// Decisions of the nearest stack that fits its text (StackView), by layer id.
+const StackFitCtx = createContext<Map<string, StackState> | null>(null)
 
 const DEFAULT_PT = 9
 const DEFAULT_LINE_HEIGHT = 1.2
@@ -88,10 +99,17 @@ interface Placement {
   stackDirection?: 'vertical' | 'horizontal'
 }
 
-function placementStyle(layer: Layer, place: Placement, pxPerMm: number): { style: CSSProperties; box: Box | null } {
+interface Placed {
+  style: CSSProperties
+  box: Box | null
+  fixedW: boolean // the width is set (frame, or the stack's cross axis)
+  fixedH: boolean
+}
+
+function placementStyle(layer: Layer, place: Placement, pxPerMm: number): Placed {
   if (place.parent) {
     const box = resolveFrame(layer.frame, place.parent)
-    return { style: boxStyle(box, pxPerMm), box }
+    return { style: boxStyle(box, pxPerMm), box, fixedW: true, fixedH: true }
   }
   // Flow child of a stack: full cross-axis size, main-axis size from the frame or content.
   const vertical = place.stackDirection !== 'horizontal'
@@ -100,15 +118,20 @@ function placementStyle(layer: Layer, place: Placement, pxPerMm: number): { styl
   const style: CSSProperties = { position: 'relative', flex: '0 0 auto' }
   if (vertical) { style.width = '100%'; if (main !== undefined) style.height = main * pxPerMm }
   else { style.height = '100%'; if (main !== undefined) style.width = main * pxPerMm }
-  return { style, box: null }
+  return { style, box: null, fixedW: vertical || main !== undefined, fixedH: !vertical || main !== undefined }
 }
 
 function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
-  const { scope, pxPerMm, fontsReady, warn, fitted } = useRender()
+  const { scope, pxPerMm, fontsReady, warn, fitted, unfit } = useRender()
+  const decisions = useContext(StackFitCtx)
   const s = layer.style || {}
   const { text, errors } = useMemo(() => interpolate(layer.text, scope), [layer.text, scope])
   useEffect(() => { for (const e of errors) warn(layer.id, e) }, [errors, layer.id, warn])
-  const { style: outer, box } = placementStyle(layer, place, pxPerMm)
+  const { style: outer, box, fixedW, fixedH } = placementStyle(layer, place, pxPerMm)
+  // Text with a size of its own fits itself; text that sizes to its content inside a stack is
+  // fitted by the stack (StackView), together with its siblings.
+  const selfFit = fixedW && fixedH
+  const inStack = !selfFit && place.parent === null
   const basePt = s.sizePt ?? DEFAULT_PT
   const baseLh = s.lineHeight ?? DEFAULT_LINE_HEIGHT
   const wrap = s.wrap !== false
@@ -120,39 +143,42 @@ function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   const [result, setResult] = useState<FitResult | null>(null)
-  const boxKey = box ? `${box.w.toFixed(4)}x${box.h.toFixed(4)}` : 'flow'
+  const boxKey = box ? `${box.w.toFixed(4)}x${box.h.toFixed(4)}` : `flow:${String(outer.width ?? '')}x${String(outer.height ?? '')}`
 
   // Fit by measuring the real layout (synchronous, before paint).
   useLayoutEffect(() => {
     const c = containerRef.current
     const inner = innerRef.current
-    if (!c || !inner) return
-    if (!box || !fontsReady) {
-      const r: FitResult = { status: 'fits', pt: startPt, lineHeight: baseLh }
-      setResult(r)
-      if (fontsReady) fitted(layer.id, r)
-      return
-    }
+    if (!selfFit || !c || !inner || !fontsReady || !text) { setResult(null); return }
     // Measure by setting sizes directly on the element, then put back exactly what React rendered:
     // React only re-applies a style when its value changes, so clearing it would leave the text
     // at the inherited size.
     const prevSize = inner.style.fontSize
     const prevLh = inner.style.lineHeight
-    const overflows = (pt: number, lh: number) => {
+    const measure = (pt: number, lh: number) => {
       inner.style.fontSize = `${ptToPx(pt, pxPerMm)}px`
       inner.style.lineHeight = String(lh)
-      return inner.offsetHeight > c.clientHeight + 0.5 || inner.scrollWidth > c.clientWidth + 0.5
+      const cr = c.getBoundingClientRect()
+      const ir = inner.getBoundingClientRect()
+      return { needH: ir.height, roomH: cr.height, needW: Math.max(ir.width, inner.scrollWidth), roomW: cr.width }
     }
-    const r = fitText(startPt, baseLh, minPt, strategy, overflows)
+    const r = fitText({ basePt: startPt, baseLineHeight: baseLh, minPt, strategy }, measure, pxPerMm, wrap)
     inner.style.fontSize = prevSize
     inner.style.lineHeight = prevLh
     setResult(r)
-    fitted(layer.id, r)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, startPt, baseLh, minPt, strategy.join(','), boxKey, pxPerMm, fontsReady, s.font, s.weight, s.italic, wrap, layer.type])
+  }, [selfFit, text, startPt, baseLh, minPt, strategy.join(','), boxKey, pxPerMm, fontsReady, s.font, s.weight, s.italic, s.letterSpacingPt, wrap, layer.type])
 
-  const pt = result?.pt ?? startPt
-  const lh = result?.lineHeight ?? baseLh
+  // Report the result (stack children are reported by their stack).
+  useLayoutEffect(() => {
+    if (inStack || !result || !fontsReady) return undefined
+    fitted(layer.id, result)
+    return () => unfit(layer.id)
+  }, [inStack, result, fontsReady, fitted, unfit, layer.id])
+
+  const decided = inStack ? decisions?.get(layer.id) : undefined
+  const pt = decided?.pt ?? result?.pt ?? startPt
+  const lh = decided?.lineHeight ?? result?.lineHeight ?? baseLh
   const justify = s.valign === 'middle' ? 'center' : s.valign === 'bottom' ? 'flex-end' : 'flex-start'
   const innerStyle: CSSProperties = {
     fontFamily: s.font ? `"${s.font}", sans-serif` : 'sans-serif',
@@ -168,22 +194,29 @@ function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
     width: wrap ? '100%' : 'max-content',
     minWidth: wrap ? undefined : '100%',
   }
-  const hidden = result?.status === 'hidden' || !text
+  const hidden = (inStack ? decided?.hidden : result?.status === 'hidden') || !text
+  // What the stack needs to fit this layer (read from the DOM by StackView).
+  // `look` is only there so that a font or style change makes the stack fit again.
+  const policy = inStack && text
+    ? JSON.stringify({ basePt: startPt, baseLineHeight: baseLh, minPt, strategy, priority: layer.priority ?? 0, look: [layer.type, s.font, s.weight, s.italic, s.letterSpacingPt, s.wrap, s.align] })
+    : undefined
   return (
     <div
       ref={containerRef}
       data-layer-id={layer.id}
+      data-fit-item={policy ? layer.id : undefined}
+      data-fit-policy={policy}
       style={{
         ...outer,
         display: hidden && !box ? 'none' : 'flex',
         visibility: hidden ? 'hidden' : undefined,
         flexDirection: 'column',
         justifyContent: justify,
-        overflow: box ? 'hidden' : 'visible',
+        overflow: selfFit ? 'hidden' : 'visible',
         opacity: layer.opacity,
       }}
     >
-      <div ref={innerRef} style={innerStyle}>
+      <div ref={innerRef} data-fit-inner="" style={innerStyle}>
         {layer.type === 'richText'
           ? parseRichText(text).map((runs, i) => (
               <div key={i} style={{ minHeight: '1em' }}>
@@ -210,14 +243,23 @@ function Placeholder({ radius }: { radius?: number }) {
 const TILE_SOURCE_DPI = 300 // tile images repeat at their natural size assuming 300 dpi (ext)
 
 function ImageView({ layer, place }: { layer: ImageLayer; place: Placement }) {
-  const { scope, pxPerMm, projectId, versions, warn } = useRender()
-  const { style: outer } = placementStyle(layer, place, pxPerMm)
+  const { scope, pxPerMm, projectId, versions, warn, measureOnly, imagePending } = useRender()
+  const { style: outer, fixedW, fixedH } = placementStyle(layer, place, pxPerMm)
   const { text: src, errors } = useMemo(() => interpolate(layer.src, scope), [layer.src, scope])
   const check = checkSrc(src)
   const [failed, setFailed] = useState<string | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const url = check.ok ? assetUrl(projectId, check.rel, versions) : null
+  // An image inside a stack with no length of its own takes the file's proportions, so its
+  // loading moves the text around it: the stack refits when it settles.
+  const sizedByFile = !(fixedW && fixedH)
+  const settles = sizedByFile && Boolean(url) && !failed
   useEffect(() => { setFailed(null); setNatural(null) }, [url])
+  useLayoutEffect(() => {
+    if (!settles) return undefined
+    imagePending(layer.id, true)
+    return () => imagePending(layer.id, false)
+  }, [settles, url, layer.id, imagePending])
   useEffect(() => {
     for (const e of errors) warn(layer.id, e)
     if (!check.ok && check.reason !== 'empty') warn(layer.id, check.reason)
@@ -226,6 +268,8 @@ function ImageView({ layer, place }: { layer: ImageLayer; place: Placement }) {
   const radius = layer.radiusMm ? layer.radiusMm * pxPerMm : undefined
   const showPlaceholder = !url || failed
   const tile = layer.objectFit === 'tile'
+  const settled = () => { if (settles) imagePending(layer.id, false) }
+  if (measureOnly && !sizedByFile) return <div data-layer-id={layer.id} style={outer} />
   return (
     <div data-layer-id={layer.id} style={{ ...outer, overflow: 'hidden', borderRadius: radius, opacity: layer.opacity }}>
       {showPlaceholder ? (
@@ -236,8 +280,8 @@ function ImageView({ layer, place }: { layer: ImageLayer; place: Placement }) {
             src={url!}
             alt=""
             draggable={false}
-            onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-            onError={() => setFailed(src)}
+            onLoad={(e) => { setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight }); settled() }}
+            onError={() => { setFailed(src); settled() }}
             style={{ display: 'none' }}
           />
           {natural && (
@@ -255,7 +299,8 @@ function ImageView({ layer, place }: { layer: ImageLayer; place: Placement }) {
           src={url!}
           alt=""
           draggable={false}
-          onError={() => setFailed(src)}
+          onLoad={settled}
+          onError={() => { setFailed(src); settled() }}
           style={{
             display: 'block', width: '100%', height: '100%',
             objectFit: layer.objectFit === 'fill' ? 'fill' : layer.objectFit === 'contain' ? 'contain' : 'cover',
@@ -308,21 +353,106 @@ function IconRepeatView({ layer, place }: { layer: IconRepeatLayer; place: Place
   return <div data-layer-id={layer.id} style={{ ...outer, outline: '1px dashed rgba(124,110,240,0.8)', opacity: layer.opacity }} />
 }
 
-function ContainerView({ layer, place }: { layer: StackLayer | GroupLayer; place: Placement }) {
+function GroupView({ layer, place }: { layer: GroupLayer; place: Placement }) {
   const { pxPerMm } = useRender()
   const { style: outer, box } = placementStyle(layer, place, pxPerMm)
-  if (layer.type === 'group') {
-    const local: Box | null = box ? { x: 0, y: 0, w: box.w, h: box.h } : null
-    return (
-      <div data-layer-id={layer.id} style={{ ...outer, opacity: layer.opacity }}>
-        {local && <Layers layers={layer.children} place={{ parent: local }} />}
-      </div>
-    )
-  }
+  const local: Box | null = box ? { x: 0, y: 0, w: box.w, h: box.h } : null
+  return (
+    <div data-layer-id={layer.id} style={{ ...outer, opacity: layer.opacity }}>
+      {local && <Layers layers={layer.children} place={{ parent: local }} />}
+    </div>
+  )
+}
+
+const containsFitItem = (el: Element) => el.hasAttribute('data-fit-item') || Boolean(el.querySelector('[data-fit-item]'))
+
+// A stack whose own length is set (a frame, or a set size inside another stack) fits the text
+// layers inside it that size to their content: it measures them together and decides each one's
+// size, line height or hiding (fitStack), then renders them with those decisions. A stack that
+// grows with its content leaves this to the stack around it.
+function StackView({ layer, place }: { layer: StackLayer; place: Placement }) {
+  const { pxPerMm, fontsReady, fitted, unfit, epoch } = useRender()
+  const outerDecisions = useContext(StackFitCtx)
+  const { style: outer, fixedW, fixedH } = placementStyle(layer, place, pxPerMm)
   const vertical = layer.direction !== 'horizontal'
+  const fitsText = vertical ? fixedH : fixedW
+  const order = layer.fitOrder === 'hideFirst' ? 'hideFirst' : 'shrinkFirst'
+  const ref = useRef<HTMLDivElement>(null)
+  const [decisions, setDecisions] = useState<Map<string, StackState> | null>(null)
+  const signature = useRef('')
+  const reported = useRef<string[]>([])
+
+  // Runs after every commit; the signature of everything the fit depends on skips the work when
+  // nothing changed (the decisions themselves are not part of it, so applying them can't loop).
+  useLayoutEffect(() => {
+    const el = ref.current
+    const report = (results: Record<string, FitResult>) => {
+      const ids = Object.keys(results)
+      for (const id of reported.current) if (!(id in results)) unfit(id)
+      for (const id of ids) fitted(id, results[id])
+      reported.current = ids
+    }
+    if (!fitsText || !el || !fontsReady) {
+      if (signature.current) { signature.current = ''; report({}); setDecisions(null) }
+      return
+    }
+    const nodes = [...el.querySelectorAll<HTMLElement>('[data-fit-item]')].filter((n) => n.closest('[data-fit-scope]') === el)
+    const inners = nodes.map((n) => n.querySelector<HTMLElement>('[data-fit-inner]')!)
+    const box = el.getBoundingClientRect()
+    const rigid = [...el.children].filter((c) => !containsFitItem(c)).map((c) => {
+      const r = c.getBoundingClientRect()
+      return Math.round((vertical ? r.height : r.width) * 100)
+    })
+    const sig = JSON.stringify([
+      epoch, pxPerMm, order, layer.gapMm ?? 0, Math.round(box.width * 100), Math.round(box.height * 100), rigid,
+      nodes.map((n, i) => [n.dataset.fitItem, n.dataset.fitPolicy, inners[i].textContent]),
+    ])
+    if (sig === signature.current) return
+    signature.current = sig
+    if (!nodes.length) { report({}); setDecisions(null); return }
+
+    const items: StackItem[] = nodes.map((n) => ({ id: n.dataset.fitItem!, ...JSON.parse(n.dataset.fitPolicy!) }))
+    const saved = nodes.map((n, i) => [n.style.display, inners[i].style.fontSize, inners[i].style.lineHeight])
+    const measure = (state: Record<string, StackState>): StackMeasure => {
+      nodes.forEach((n, i) => {
+        const s = state[items[i].id]
+        n.style.display = s.hidden ? 'none' : 'flex'
+        inners[i].style.fontSize = `${ptToPx(s.pt, pxPerMm)}px`
+        inners[i].style.lineHeight = String(s.lineHeight)
+      })
+      const b = el.getBoundingClientRect()
+      const start = vertical ? b.top : b.left
+      let end = start
+      for (const child of el.children) {
+        const r = child.getBoundingClientRect()
+        if (r.width === 0 && r.height === 0) continue // display: none
+        end = Math.max(end, vertical ? r.bottom : r.right)
+      }
+      const at: StackMeasure['items'] = {}
+      nodes.forEach((n, i) => {
+        if (state[items[i].id].hidden) return
+        const r = n.getBoundingClientRect()
+        at[items[i].id] = { pos: (vertical ? r.top : r.left) - start, size: vertical ? r.height : r.width }
+      })
+      return { room: vertical ? b.height : b.width, need: end - start, items: at }
+    }
+    const results = fitStack(items, measure, pxPerMm, order)
+    // Put back exactly what React rendered (see TextView); the decisions re-render the children.
+    nodes.forEach((n, i) => {
+      n.style.display = saved[i][0]
+      inners[i].style.fontSize = saved[i][1]
+      inners[i].style.lineHeight = saved[i][2]
+    })
+    setDecisions(new Map(Object.entries(results).map(([id, r]) => [id, { pt: r.pt, lineHeight: r.lineHeight, hidden: r.status === 'hidden' }])))
+    report(results)
+  })
+  useLayoutEffect(() => () => { for (const id of reported.current) unfit(id) }, [unfit])
+
   return (
     <div
+      ref={ref}
       data-layer-id={layer.id}
+      data-fit-scope={fitsText ? '' : undefined}
       style={{
         ...outer,
         display: 'flex',
@@ -332,7 +462,9 @@ function ContainerView({ layer, place }: { layer: StackLayer | GroupLayer; place
         opacity: layer.opacity,
       }}
     >
-      <Layers layers={layer.children} place={{ parent: null, stackDirection: layer.direction || 'vertical' }} />
+      <StackFitCtx.Provider value={fitsText ? decisions : outerDecisions}>
+        <Layers layers={layer.children} place={{ parent: null, stackDirection: layer.direction || 'vertical' }} />
+      </StackFitCtx.Provider>
     </div>
   )
 }
@@ -348,8 +480,8 @@ function LayerView({ layer, place }: { layer: Layer; place: Placement }) {
     case 'image': return <ImageView layer={layer} place={place} />
     case 'shape': return <ShapeView layer={layer} place={place} />
     case 'iconRepeat': return <IconRepeatView layer={layer} place={place} />
-    case 'stack':
-    case 'group': return <ContainerView layer={layer} place={place} />
+    case 'stack': return <StackView layer={layer} place={place} />
+    case 'group': return <GroupView layer={layer} place={place} />
     default: return null
   }
 }
@@ -365,13 +497,23 @@ export function cardPixelSize(template: Template, pxPerMm: number, showBleed: bo
   return { width: (template.size.widthMm + 2 * b) * pxPerMm, height: (template.size.heightMm + 2 * b) * pxPerMm }
 }
 
-export default function CardRender({ template, card, projectId, pxPerMm, showBleed = false, assetVersions, onReady }: CardRenderProps) {
+export default function CardRender({ template, card, projectId, pxPerMm, showBleed = false, assetVersions, onReady, measureOnly = false, onFits }: CardRenderProps) {
   const scope = useMemo(() => cardScope(card), [card])
   const [fontEpoch, setFontEpoch] = useState(0)
+  const [imageEpoch, setImageEpoch] = useState(0)
   const fontsReady = useFontsReady(template, fontEpoch)
   const rootRef = useRef<HTMLDivElement>(null)
   const warningsRef = useRef(new Map<string, string>())
+  // Fit results by layer id. Layers set their entry when their result changes and remove it when
+  // they unmount, so the map always matches what is on the card.
   const fitsRef = useRef(new Map<string, FitResult>())
+  const pendingImages = useRef(new Set<string>())
+  const fitted = useCallback((id: string, r: FitResult) => { fitsRef.current.set(id, r) }, [])
+  const unfit = useCallback((id: string) => { fitsRef.current.delete(id) }, [])
+  const imagePending = useCallback((id: string, pending: boolean) => {
+    if (pending) pendingImages.current.add(id)
+    else if (pendingImages.current.delete(id)) setImageEpoch((e) => e + 1)
+  }, [])
 
   // A project font finishing loading changes metrics: refit.
   useEffect(() => {
@@ -380,15 +522,29 @@ export default function CardRender({ template, card, projectId, pxPerMm, showBle
     return () => document.fonts.removeEventListener('loadingdone', onDone)
   }, [])
 
+  const epoch = `${fontEpoch}:${imageEpoch}`
   const ctx = useMemo<Ctx>(() => {
     warningsRef.current = new Map()
-    fitsRef.current = new Map()
     return {
-      projectId, pxPerMm, scope, versions: assetVersions, fontsReady,
+      projectId, pxPerMm, scope, versions: assetVersions, fontsReady, measureOnly, epoch,
       warn: (id, msg) => { warningsRef.current.set(`${id}: ${msg}`, `${id}: ${msg}`) },
-      fitted: (id, r) => { fitsRef.current.set(id, r) },
+      fitted, unfit, imagePending,
     }
-  }, [projectId, pxPerMm, scope, assetVersions, fontsReady, template])
+  }, [projectId, pxPerMm, scope, assetVersions, fontsReady, template, measureOnly, epoch, fitted, unfit, imagePending])
+
+  // Measure-only: report once layout has settled. Layout effects run children first, and updates
+  // they make re-render synchronously before this microtask runs.
+  const onFitsRef = useRef(onFits)
+  onFitsRef.current = onFits
+  useLayoutEffect(() => {
+    if (!onFitsRef.current || !fontsReady) return undefined
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled || pendingImages.current.size) return
+      onFitsRef.current?.(Object.fromEntries(fitsRef.current))
+    })
+    return () => { cancelled = true }
+  })
 
   // Ready = fonts loaded, every <img> settled, two frames painted.
   useEffect(() => {

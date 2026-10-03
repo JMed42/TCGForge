@@ -63,6 +63,8 @@ test('a new stack starts with two flowing text blocks; rich text defaults to whi
   assert.deepEqual(stack.children.map((c: any) => [c.type, c.frame]), [['richText', undefined], ['text', undefined]])
   assert.match(stack.children[0].text, /line below moves down/)
   assert.equal(stack.children[1].style.italic, true)
+  assert.equal(stack.children[1].priority, 2, 'the flavor line gives way first')
+  assert.deepEqual(stack.children[1].fit, { strategy: ['hide'] })
   const r = addLayer(tpl(), 'richText')
   assert.equal((getLayer(r.template, r.id) as any).style.color, '#ffffff')
 })
