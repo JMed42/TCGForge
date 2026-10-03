@@ -4,12 +4,14 @@ import { createDesignerSlice } from './designerSlice'
 import { createCardsSlice } from './cardsSlice'
 import { createCardModelSlice } from './cardModelSlice'
 import { createFitSlice } from './fitSlice'
+import { createLibrarySlice } from './librarySlice'
 
 export const useStore = create((set, get) => ({
   ...createDesignerSlice(set, get),
   ...createCardsSlice(set, get),
   ...createCardModelSlice(set, get),
   ...createFitSlice(set, get),
+  ...createLibrarySlice(set, get),
 
   // Projects
   projects: [],
@@ -48,12 +50,13 @@ export const useStore = create((set, get) => ({
     get().resetDesigner()
     get().resetCardsScreen()
     get().resetFit()
+    get().resetLibrary()
     set({ activeProjectId: id, activeView: 'cards' })
     await get().loadCardModel()
     await get().loadCards()
     await get().loadDocuments()
     // Everything the background fit check needs, whichever screen is open (components/Fit).
-    await Promise.all([get().loadTemplates(), get().loadTemplateRules(), get().loadFitSignatures(), get().loadFitCache()])
+    await Promise.all([get().loadTemplates(), get().loadTemplateRules(), get().loadFitSignatures(), get().loadFitCache(), get().loadLibrary()])
     if (get().activeProjectId === id) set({ fitReady: true })
   },
 

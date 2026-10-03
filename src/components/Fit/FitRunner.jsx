@@ -6,6 +6,7 @@ import { orderRules } from '../../designer/rules/resolveTemplate.ts'
 import { FIT_PX_PER_MM } from '../../designer/fit/inputs.ts'
 import { useParsedTemplates } from './templates'
 import { fitKeyFor } from './fitKey'
+import { useLibrary } from '../../designer/library/LibraryContext.ts'
 import { deliver, hasRequested, onRequested, takeRequested } from './fitQueue'
 
 // The background fit check (spec Phase 3: "fit_cache fills in the background for the whole set
@@ -30,6 +31,7 @@ export default function FitRunner() {
   const assetVersions = useStore((s) => s.assetVersions)
   const activeCardId = useStore((s) => s.activeCardId)
   const templates = useParsedTemplates()
+  const library = useLibrary()
   const fonts = useProjectFonts(projectId, assetVersions)
   const [batch, setBatch] = useState(null)
   const [wake, setWake] = useState(0)
@@ -45,11 +47,11 @@ export default function FitRunner() {
     const ordered = orderRules(rules)
     const out = []
     for (const card of cards) {
-      const key = fitKeyFor(card, templates, ordered, sigs)
+      const key = fitKeyFor(card, templates, ordered, sigs, library.signature)
       if (key) out.push({ ...key, card, cardId: card.id })
     }
     return out
-  }, [cards, rules, templates, sigs])
+  }, [cards, rules, templates, sigs, library])
 
   // Cards without a current result, the active card first.
   const stale = useMemo(() => {

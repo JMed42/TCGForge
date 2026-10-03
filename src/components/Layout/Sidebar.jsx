@@ -9,6 +9,7 @@ import {
   Download,
   ChevronDown,
   Plus,
+  Library,
 } from 'lucide-react'
 import ProjectSwitcher from '../Projects/ProjectSwitcher'
 
@@ -35,6 +36,7 @@ export default function Sidebar() {
     { icon: Database, label: 'Cards', view: 'cards' },
     { icon: Shapes, label: 'Card Types', view: 'types' },
     { icon: Layers, label: 'Designer', view: 'designer' },
+    { icon: Library, label: 'Library', view: 'library' },
     { icon: BookOpen, label: 'Game Docs', view: 'rules' },
     { icon: Settings, label: 'Settings', view: 'settings' },
   ]

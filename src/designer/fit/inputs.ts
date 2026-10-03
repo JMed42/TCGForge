@@ -7,6 +7,8 @@
 //     template's saved content
 //   the project font files the template's text uses, and the project's image files when the
 //     template lets an image size itself by the file inside a stack (its height moves the text)
+//   the project library (symbols, keywords, variables, reminder settings) and the card's own
+//     reminder-text choice
 //   the fit engine's version and the browser engine's version
 
 import { cardScope } from '../expr/scope.ts'
@@ -82,9 +84,11 @@ export interface FitInputs {
   templateHash: string | null // hashOf(the template's saved content); null: no template
   fontsSig: string
   imagesSig?: string | null // only for templates that size images by their file
+  library?: string // the library's signature (symbols, keywords, variables, reminder settings)
   engine: string
 }
 
 export function fitInputHash(i: FitInputs): string {
-  return hashOf([i.engine, i.templateId, i.templateHash, i.fontsSig, i.imagesSig ?? null, cardScope(i.card)])
+  // The card's own reminder-text choice isn't in its scope, so it goes in on its own.
+  return hashOf([i.engine, i.templateId, i.templateHash, i.fontsSig, i.imagesSig ?? null, i.library ?? '', i.card.reminders ?? null, cardScope(i.card)])
 }

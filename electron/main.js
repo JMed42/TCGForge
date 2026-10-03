@@ -117,6 +117,7 @@ app.whenReady().then(async () => {
       updateTemplate: database.updateTemplate,
       deleteTemplate: database.deleteTemplate,
       listTemplateRules: database.listTemplateRules,
+      getLibrary: (projectId) => database.getLibraryApi().getLibrary(projectId),
       dialog,
       shell,
       getWindow: () => mainWindow,

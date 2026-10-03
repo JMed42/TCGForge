@@ -93,12 +93,12 @@ class RenderService {
    * Render one card and capture it.
    * @returns {Promise<{ image: Electron.NativeImage, width: number, height: number, report }>}
    */
-  renderCard({ template, card, projectId, pxPerMm, showBleed, background = null }) {
+  renderCard({ template, card, projectId, pxPerMm, showBleed, background = null, library = null }) {
     return this.enqueue(async () => {
       const b = showBleed ? template.size.bleedMm : 0;
       const width = Math.round((template.size.widthMm + 2 * b) * pxPerMm);
       const height = Math.round((template.size.heightMm + 2 * b) * pxPerMm);
-      const res = await this.send({ kind: 'card', template, card, projectId, pxPerMm, showBleed, background }, { width, height });
+      const res = await this.send({ kind: 'card', template, card, projectId, pxPerMm, showBleed, background, library }, { width, height });
       const image = await this.win.webContents.capturePage({ x: 0, y: 0, width, height });
       return { image, width, height, report: res.report };
     });
@@ -106,7 +106,7 @@ class RenderService {
 
   /**
    * Lay out pages of cards (imposition) and print them to PDF. Text stays vector.
-   * @param {{ projectId, template, showBleed, pageWidthMm, pageHeightMm, pages: Array<{ items: Array<{ card, xMm, yMm }>, marks: Array<[x1,y1,x2,y2]> }> }} doc
+   * @param {{ projectId, template, showBleed, pageWidthMm, pageHeightMm, pages: Array<{ items: Array<{ card, xMm, yMm }>, marks: Array<[x1,y1,x2,y2]> }>, library? }} doc
    * @returns {Promise<{ pdf: Buffer, report }>}
    */
   printPages(doc) {

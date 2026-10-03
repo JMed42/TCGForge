@@ -7,6 +7,7 @@ const { createCardModel, registerCardModelIpc } = cardModelLib;
 const { createFitCache, registerFitCacheIpc } = require('./fitCache');
 const { createLibrary, registerLibraryIpc } = require('./library');
 const { resolveProjectAsset } = require('./assets');
+const { imageSize } = require('./imageSize');
 
 let db;
 let dbPath;
@@ -347,6 +348,10 @@ const library = createLibrary({
   queryAll, queryOne, exec, inTransaction,
   cardPatchSql: (projectId, patch) => cardUpdateSql(projectId, normalizeCardData(patch)),
   fileExists: (projectId, rel) => Boolean(userDataDir && resolveProjectAsset(userDataDir, projectId, rel)),
+  imageSizeOf: (projectId, rel) => {
+    const abs = userDataDir && resolveProjectAsset(userDataDir, projectId, rel);
+    try { return abs ? imageSize(fs.readFileSync(abs)) : null; } catch { return null; }
+  },
 });
 
 // SET clause for a (normalised) partial card of projectId, validating references.

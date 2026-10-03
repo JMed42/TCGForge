@@ -9,6 +9,8 @@ import CardTypesView from './components/CardTypes/CardTypesView'
 import { DesignerView } from './components/CardDesigner'
 import UnsavedChangesDialog from './components/CardDesigner/UnsavedChangesDialog'
 import FitRunner from './components/Fit/FitRunner'
+import LibraryProvider from './components/Library/LibraryProvider'
+import LibraryView from './components/Library/LibraryView'
 
 export default function App() {
   // Selectors, not the whole store: the fit check updates the store often, and the root must not
@@ -38,17 +40,20 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-surface-0">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {activeView === 'cards' && <CardDatabase />}
-        {activeView === 'types' && <CardTypesView />}
-        {activeView === 'designer' && <DesignerView />}
-        {activeView === 'rules' && <RulesWorkspace />}
-        {activeView === 'settings' && <ProjectSettings />}
+    <LibraryProvider>
+      <div className="flex h-screen bg-surface-0">
+        <Sidebar />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {activeView === 'cards' && <CardDatabase />}
+          {activeView === 'types' && <CardTypesView />}
+          {activeView === 'designer' && <DesignerView />}
+          {activeView === 'library' && <LibraryView />}
+          {activeView === 'rules' && <RulesWorkspace />}
+          {activeView === 'settings' && <ProjectSettings />}
+        </div>
+        <UnsavedChangesDialog />
+        <FitRunner key={activeProjectId} />
       </div>
-      <UnsavedChangesDialog />
-      <FitRunner key={activeProjectId} />
-    </div>
+    </LibraryProvider>
   )
 }

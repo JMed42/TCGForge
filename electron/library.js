@@ -59,9 +59,9 @@ const relOk = (rel) => typeof rel === 'string' && rel.startsWith('assets/') && !
 
 /**
  * deps: { queryAll, queryOne, exec, inTransaction, cardPatchSql(projectId, patch) -> { sql, values } | null,
- *         fileExists?(projectId, relPath) -> boolean }
+ *         fileExists?(projectId, relPath) -> boolean, imageSizeOf?(projectId, relPath) -> { width, height } | null }
  */
-function createLibrary({ queryAll, queryOne, exec, inTransaction, cardPatchSql, fileExists }) {
+function createLibrary({ queryAll, queryOne, exec, inTransaction, cardPatchSql, fileExists, imageSizeOf }) {
   const settingsOf = (projectId) => {
     const row = queryOne('SELECT settings FROM projects WHERE id = ?', [projectId]);
     return cleanSettings(parseJson((row && row.settings) || '{}', {}));
@@ -74,6 +74,12 @@ function createLibrary({ queryAll, queryOne, exec, inTransaction, cardPatchSql, 
        WHERE s.project_id = ? ORDER BY s.shortcode COLLATE NOCASE`,
       [projectId],
     );
+    // Not indexed yet (the index scans a project on first use): read the image's header.
+    for (const s of symbols) {
+      if (s.width && s.height) continue;
+      const size = imageSizeOf ? imageSizeOf(projectId, s.rel_path) : null;
+      if (size) { s.width = size.width; s.height = size.height; }
+    }
     const keywords = queryAll('SELECT id, name, params_json, reminder_template, rule_ref FROM keywords WHERE project_id = ? ORDER BY name COLLATE NOCASE', [projectId])
       .map(({ params_json: p, ...k }) => ({ ...k, params: parseJson(p || '[]', []) }));
     const variables = queryAll('SELECT id, key, value, description FROM variables WHERE project_id = ? ORDER BY key', [projectId]);

@@ -84,6 +84,10 @@ function registerCardDesignerIpc(ipcMain, deps) {
 
   const isAuto = (templateId) => templateId === 'auto';
 
+  // The project's symbols, keywords and variables travel with every render job, so exports draw
+  // them exactly as the editor does.
+  const libraryFor = (projectId) => (deps.getLibrary ? deps.getLibrary(projectId) : null);
+
   // The cards an export covers: an explicit list (what the Database tab shows, in its order),
   // or a filter for older callers.
   const cardsFor = (projectId, options) => {
@@ -122,8 +126,9 @@ function registerCardDesignerIpc(ipcMain, deps) {
     return { card, template, projectId: row.project_id };
   };
 
-  const pngFor = async ({ template, card, projectId }, dpi, { showBleed = false, background = null } = {}) => {
-    const { image, report } = await render.renderCard({ template, card, projectId, pxPerMm: dpi / 25.4, showBleed, background });
+  const pngFor = async ({ template, card, projectId, library }, dpi, { showBleed = false, background = null } = {}) => {
+    const lib = library === undefined ? libraryFor(projectId) : library;
+    const { image, report } = await render.renderCard({ template, card, projectId, pxPerMm: dpi / 25.4, showBleed, background, library: lib });
     return { png: withDpi(image.toPNG(), dpi), image, report };
   };
 
@@ -132,7 +137,7 @@ function registerCardDesignerIpc(ipcMain, deps) {
     const layout = sheets.singleCardPage(template, { cropMarks });
     const pages = sheets.buildSheetPages(layout, 1, () => card, { cropMarks });
     return render.printPages({
-      projectId, template, showBleed: true,
+      projectId, template, showBleed: true, library: libraryFor(projectId),
       pageWidthMm: layout.pageWidthMm, pageHeightMm: layout.pageHeightMm, pages,
     });
   };
@@ -159,6 +164,14 @@ function registerCardDesignerIpc(ipcMain, deps) {
   ipcMain.handle('deleteTemplate', (_, id) => deps.deleteTemplate(id));
 
   ipcMain.handle('listProjectFonts', (_, projectId) => listProjectFonts(templates.projectDir(userDataPath, projectId)));
+
+  // The project's fonts or symbol images folder in Explorer (created if missing).
+  ipcMain.handle('openProjectFolder', (_, projectId, sub) => {
+    if (!['assets/fonts', 'assets/icons'].includes(sub)) throw new Error(`unknown folder "${sub}"`);
+    const dir = path.join(templates.projectDir(userDataPath, projectId), ...sub.split('/'));
+    fs.mkdirSync(dir, { recursive: true });
+    return shell.openPath(dir);
+  });
 
   // ── Single card ──
   // options: { format: png|jpeg|pdf, dpi, draft, outputPath, bleed (png: include bleed area) }
@@ -229,12 +242,13 @@ function registerCardDesignerIpc(ipcMain, deps) {
     let exported = 0;
     const started = Date.now();
     const sender = event.sender;
+    const library = libraryFor(projectId);
 
     for (let i = 0; i < cards.length; i++) {
       const card = cards[i];
       if (!sender.isDestroyed()) sender.send('exportProgress', { current: i + 1, total: cards.length });
       try {
-        const out = await pngFor({ template: templateFor(card), card, projectId }, dpi, { showBleed: Boolean(options.bleed), background: format === 'jpeg' ? '#ffffff' : null });
+        const out = await pngFor({ template: templateFor(card), card, projectId, library }, dpi, { showBleed: Boolean(options.bleed), background: format === 'jpeg' ? '#ffffff' : null });
         fs.writeFileSync(path.join(outputDir, batchFileName(card, format)), format === 'jpeg' ? out.image.toJPEG(92) : out.png);
         for (const w of out.report.warnings) errors.push(`card ${card.id} "${card.name}": warning: ${w}`);
         exported++;
@@ -325,7 +339,7 @@ function registerCardDesignerIpc(ipcMain, deps) {
       }
     }
     const { pdf, report } = await render.printPages({
-      projectId, template: forPrint(template), showBleed: layout.bleedMm > 0,
+      projectId, template: forPrint(template), showBleed: layout.bleedMm > 0, library: libraryFor(projectId),
       pageWidthMm: layout.pageWidthMm, pageHeightMm: layout.pageHeightMm, pages,
     });
     fs.writeFileSync(outPath, pdf);

@@ -10,6 +10,9 @@ import type { Template } from '../schema/types.ts'
 import { useProjectFonts } from './useProjectFonts.ts'
 import { resolveAll } from '../rules/resolveTemplate.ts'
 import type { TemplateRule } from '../rules/resolveTemplate.ts'
+import { LibraryContext } from '../library/LibraryContext.ts'
+import { compileLibrary } from '../library/library.ts'
+import type { LibraryRows } from '../library/library.ts'
 
 interface CardJob {
   jobId: number
@@ -20,6 +23,7 @@ interface CardJob {
   pxPerMm: number
   showBleed: boolean
   background: string | null
+  library?: LibraryRows | null // the project's symbols, keywords and variables
 }
 
 interface PagesJob {
@@ -28,6 +32,7 @@ interface PagesJob {
   template: Template
   projectId: number
   showBleed: boolean
+  library?: LibraryRows | null
   pageWidthMm: number
   pageHeightMm: number
   // An item may carry its own template (cards resolved by template rules); a page may carry its
@@ -156,6 +161,11 @@ export default function RenderHost() {
     return off
   }, [])
 
+  const library = useMemo(() => compileLibrary(job?.library), [job])
   if (!job || !fonts.ready) return null
-  return job.kind === 'card' ? <CardJobView key={job.jobId} job={job} /> : <PagesJobView key={job.jobId} job={job} />
+  return (
+    <LibraryContext.Provider value={library}>
+      {job.kind === 'card' ? <CardJobView key={job.jobId} job={job} /> : <PagesJobView key={job.jobId} job={job} />}
+    </LibraryContext.Provider>
+  )
 }

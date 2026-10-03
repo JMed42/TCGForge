@@ -26,6 +26,8 @@ test('the key changes with every input', () => {
     ['the fonts', { ...base, fontsSig: 'f2' }],
     ['the image files (when they size the text)', { ...base, imagesSig: 'i1' }],
     ['the engine', { ...base, engine: engineKey('Chrome/131.0') }],
+    ['the library (symbols, keywords, variables)', { ...base, library: 'lib-2' }],
+    ['the card\'s own reminder choice', { ...base, card: { ...card, reminders: 0 } }],
   ]
   for (const [what, inputs] of changed) assert.notEqual(fitInputHash(inputs), h, what)
 })

@@ -7,6 +7,7 @@ import { FIT_PX_PER_MM } from '../../designer/fit/inputs.ts'
 import { applyLive } from '../Cards/grid/cardFields'
 import { useParsedTemplates } from './templates'
 import { fitKeyFor } from './fitKey'
+import { useLibrary } from '../../designer/library/LibraryContext.ts'
 
 // The live fit budget (spec: "Live fit budget while typing in a cell"): the active card with what
 // is being typed, measured on every keystroke the same way as the background check (hidden, 300
@@ -23,7 +24,8 @@ export default function LiveFitProbe() {
   const fonts = useProjectFonts(projectId, assetVersions)
   const liveCard = useMemo(() => applyLive(card, liveEdit), [card, liveEdit])
   const ordered = useMemo(() => orderRules(rules), [rules])
-  const key = useMemo(() => (liveCard && sigs ? fitKeyFor(liveCard, templates, ordered, sigs) : null), [liveCard, templates, ordered, sigs])
+  const library = useLibrary()
+  const key = useMemo(() => (liveCard && sigs ? fitKeyFor(liveCard, templates, ordered, sigs, library.signature) : null), [liveCard, templates, ordered, sigs, library])
   const typing = Boolean(card && liveEdit && liveEdit.cardId === card.id)
   const last = useRef('')
 

@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteLibraryItem: (projectId, kind, id) => ipcRenderer.invoke('deleteLibraryItem', projectId, kind, id),
   saveLibrarySettings: (projectId, settings) => ipcRenderer.invoke('saveLibrarySettings', projectId, settings),
   renameLibraryItem: (projectId, request) => ipcRenderer.invoke('renameLibraryItem', projectId, request),
+  openProjectFolder: (projectId, sub) => ipcRenderer.invoke('openProjectFolder', projectId, sub),
 
   // Fit cache (results of the background fit check)
   getFitCache: (projectId) => ipcRenderer.invoke('getFitCache', projectId),

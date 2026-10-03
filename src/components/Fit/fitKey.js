@@ -27,18 +27,19 @@ function filesSigFor(template, sigs) {
 
 /**
  * templates: Map id -> { row, template, hash } (useParsedTemplates); orderedRules: orderRules(rules);
- * sigs: { fontFiles, images } (store.fitSignatures). Returns { templateId, templateVersion,
- * template, hash } or null when the card has no template that opens.
+ * sigs: { fontFiles, images } (store.fitSignatures); library: the library's signature
+ * (RenderLibrary.signature). Returns { templateId, templateVersion, template, hash } or null when
+ * the card has no template that opens.
  */
-export function fitKeyFor(card, templates, orderedRules, sigs) {
+export function fitKeyFor(card, templates, orderedRules, sigs, library = '') {
   const { templateId } = resolveTemplate(card, orderedRules, [...templates.keys()])
   const entry = templateId ? templates.get(templateId) : null
   if (!entry?.template) return null
   const files = filesSigFor(entry.template, sigs)
-  const key = `${templateId}|${entry.hash}|${files.fonts}|${files.imagesSig}`
+  const key = `${templateId}|${entry.hash}|${files.fonts}|${files.imagesSig}|${library}`
   let m = memo.get(card)
   if (!m || m.key !== key) {
-    m = { key, hash: fitInputHash({ card, templateId, templateHash: entry.hash, fontsSig: files.fonts, imagesSig: files.imagesSig, engine: FIT_ENGINE }) }
+    m = { key, hash: fitInputHash({ card, templateId, templateHash: entry.hash, fontsSig: files.fonts, imagesSig: files.imagesSig, library, engine: FIT_ENGINE }) }
     memo.set(card, m)
   }
   return { templateId, templateVersion: entry.row.version, template: entry.template, hash: m.hash }

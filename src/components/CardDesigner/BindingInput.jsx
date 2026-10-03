@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react'
 import { interpolate, condition, FUNCTION_NAMES } from '../../designer/expr/expr.ts'
 import { cardScope } from '../../designer/expr/scope.ts'
+import { useLibrary } from '../../designer/library/LibraryContext.ts'
 
 const inputClass =
   'w-full px-2 py-1 bg-surface-2 border border-border rounded text-xs text-text-primary font-mono focus:outline-none focus:border-accent'
@@ -18,7 +19,9 @@ const FUNCTION_SNIPPETS = {
  */
 export default function BindingInput({ value, onChange, fields, card, multiline = false, bare = false, placeholder, testid }) {
   const ref = useRef(null)
-  const scope = useMemo(() => cardScope(card), [card])
+  const library = useLibrary()
+  const scope = useMemo(() => cardScope(card, library.variables), [card, library])
+  const variables = Object.keys(library.variables)
   const preview = useMemo(() => {
     const v = value ?? ''
     if (bare) {
@@ -74,6 +77,11 @@ export default function BindingInput({ value, onChange, fields, card, multiline 
             return <option key={key} value={key}>{label && label !== key ? `${label}  ${token}` : token}</option>
           })}
         </optgroup>
+        {variables.length > 0 && (
+          <optgroup label="Variables (Library)">
+            {variables.map((key) => <option key={key} value={key}>{bare ? key : `{{${key}}}`}  = {library.variables[key]}</option>)}
+          </optgroup>
+        )}
         <optgroup label="Functions">
           {FUNCTION_NAMES.map((fn) => <option key={fn} value={FUNCTION_SNIPPETS[fn] || `${fn}()`}>{FUNCTION_SNIPPETS[fn] || `${fn}()`}</option>)}
         </optgroup>

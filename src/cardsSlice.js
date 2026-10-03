@@ -179,7 +179,8 @@ export function createCardsSlice(set, get) {
       let timer = null
       return () => {
         clearTimeout(timer)
-        timer = setTimeout(() => { get().loadMissingArt(); get().loadFitSignatures?.() }, 300)
+        // Symbol images too: their shape comes from the assets index.
+        timer = setTimeout(() => { get().loadMissingArt(); get().loadFitSignatures?.(); get().loadLibrary?.() }, 300)
       }
     })(),
 
