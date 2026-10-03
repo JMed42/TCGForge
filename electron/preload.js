@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('api', {
   exportCards: (projectId, format) => ipcRenderer.invoke('exportCards', projectId, format),
 
   // Card Designer
+  getTemplateRules: (projectId) => ipcRenderer.invoke('getTemplateRules', projectId),
+  saveTemplateRules: (projectId, rules) => ipcRenderer.invoke('saveTemplateRules', projectId, rules),
   getTemplates: (projectId) => ipcRenderer.invoke('getTemplates', projectId),
   createTemplate: (projectId, name) => ipcRenderer.invoke('createTemplate', projectId, name),
   saveTemplate: (projectId, template, id) => ipcRenderer.invoke('saveTemplate', projectId, template, id),

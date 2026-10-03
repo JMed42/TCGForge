@@ -72,6 +72,39 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    version: 4,
+    name: 'template rules, card template override, assets index',
+    // Spec data model: template_rules pick a card's template (first match by priority);
+    // cards.template_override_id is the per-card exception; assets indexes files on disk.
+    up(db) {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS template_rules (
+          id              INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          priority        INTEGER NOT NULL DEFAULT 0,
+          condition_expr  TEXT NOT NULL DEFAULT '',
+          template_id     INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+          created_at      TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_template_rules_project ON template_rules(project_id, priority);
+        CREATE TABLE IF NOT EXISTS assets (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          rel_path    TEXT NOT NULL,
+          kind        TEXT NOT NULL DEFAULT 'other',
+          sha256      TEXT NOT NULL DEFAULT '',
+          width       INTEGER,
+          height      INTEGER,
+          size        INTEGER NOT NULL DEFAULT 0,
+          mtime       REAL NOT NULL DEFAULT 0,
+          UNIQUE (project_id, rel_path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_assets_project ON assets(project_id, kind);
+      `);
+      db.run('ALTER TABLE cards ADD COLUMN template_override_id INTEGER');
+    },
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

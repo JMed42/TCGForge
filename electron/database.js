@@ -139,6 +139,10 @@ function normalizeCardData(data) {
   if (out.custom_fields !== undefined && typeof out.custom_fields !== 'string') {
     out.custom_fields = JSON.stringify(out.custom_fields || {});
   }
+  if (out.template_override_id !== undefined) {
+    const n = Number(out.template_override_id);
+    out.template_override_id = out.template_override_id === null || out.template_override_id === '' || !Number.isInteger(n) || n <= 0 ? null : n;
+  }
   return out;
 }
 
@@ -196,7 +200,79 @@ function updateTemplate(id, name, content) {
 }
 
 function deleteTemplate(id) {
-  run('DELETE FROM templates WHERE id = ?', [id]);
+  // sql.js runs without foreign_keys, so dependants are cleaned up here.
+  inTransaction(() => {
+    db.run('DELETE FROM template_rules WHERE template_id = ?', [id]);
+    db.run('UPDATE cards SET template_override_id = NULL WHERE template_override_id = ?', [id]);
+    db.run('DELETE FROM templates WHERE id = ?', [id]);
+  });
+}
+
+// Several statements as one unit, saved once.
+function inTransaction(fn) {
+  db.run('BEGIN');
+  let out;
+  try {
+    out = fn();
+    db.run('COMMIT');
+  } catch (err) {
+    db.run('ROLLBACK');
+    throw err;
+  }
+  saveDatabase();
+  return out;
+}
+
+// ── TEMPLATE RULES ────────────────────────────────────────
+// Ordered by priority (0 first). The first rule whose condition is true picks a card's
+// template; evaluation lives with the expression engine (src/designer/rules).
+
+function listTemplateRules(projectId) {
+  return queryAll('SELECT * FROM template_rules WHERE project_id = ? ORDER BY priority, id', [projectId]);
+}
+
+// Replace the project's rules with `rules` ([{ condition_expr, template_id }], in order).
+function saveTemplateRules(projectId, rules) {
+  if (!Array.isArray(rules)) throw new Error('rules must be a list');
+  const valid = new Set(listTemplates(projectId).map((t) => t.id));
+  const clean = rules.map((r, i) => {
+    const templateId = Number(r && r.template_id);
+    if (!valid.has(templateId)) throw new Error(`rule ${i + 1}: template ${r && r.template_id} is not in this project`);
+    const expr = String((r && r.condition_expr) || '').trim();
+    if (expr.length > 2000) throw new Error(`rule ${i + 1}: condition is too long`);
+    return [expr, templateId];
+  });
+  inTransaction(() => {
+    db.run('DELETE FROM template_rules WHERE project_id = ?', [projectId]);
+    clean.forEach(([expr, templateId], i) => {
+      db.run('INSERT INTO template_rules (project_id, priority, condition_expr, template_id) VALUES (?, ?, ?, ?)', [projectId, i, expr, templateId]);
+    });
+  });
+  return listTemplateRules(projectId);
+}
+
+// ── ASSETS INDEX ──────────────────────────────────────────
+// Rows mirror files under {userData}/projects/{id}/ (electron/assetIndex.js keeps them in sync).
+
+function listAssets(projectId, kind) {
+  return kind
+    ? queryAll('SELECT * FROM assets WHERE project_id = ? AND kind = ? ORDER BY rel_path', [projectId, kind])
+    : queryAll('SELECT * FROM assets WHERE project_id = ? ORDER BY rel_path', [projectId]);
+}
+
+// Apply a scan result: upsert `rows`, delete `removed` rel paths. One save.
+function applyAssetChanges(projectId, rows, removed = []) {
+  if (!rows.length && !removed.length) return;
+  inTransaction(() => {
+    for (const r of rows) {
+      db.run(`INSERT INTO assets (project_id, rel_path, kind, sha256, width, height, size, mtime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, rel_path) DO UPDATE SET kind = excluded.kind, sha256 = excluded.sha256,
+          width = excluded.width, height = excluded.height, size = excluded.size, mtime = excluded.mtime`,
+      [projectId, r.rel_path, r.kind, r.sha256, r.width ?? null, r.height ?? null, r.size, r.mtime]);
+    }
+    for (const rel of removed) db.run('DELETE FROM assets WHERE project_id = ? AND rel_path = ?', [projectId, rel]);
+  });
 }
 
 function registerIpcHandlers(ipcMain) {
@@ -242,8 +318,12 @@ function registerIpcHandlers(ipcMain) {
     for (const c of cards) run('DELETE FROM cards WHERE id = ?', [c.id]);
     const docs = queryAll('SELECT id FROM documents WHERE project_id = ?', [id]);
     for (const d of docs) run('DELETE FROM documents WHERE id = ?', [d.id]);
-    run('DELETE FROM templates WHERE project_id = ?', [id]);
-    run('DELETE FROM projects WHERE id = ?', [id]);
+    inTransaction(() => {
+      db.run('DELETE FROM template_rules WHERE project_id = ?', [id]);
+      db.run('DELETE FROM assets WHERE project_id = ?', [id]);
+      db.run('DELETE FROM templates WHERE project_id = ?', [id]);
+      db.run('DELETE FROM projects WHERE id = ?', [id]);
+    });
   });
 
   // ── CARDS ─────────────────────────────────────────────────
@@ -273,11 +353,16 @@ function registerIpcHandlers(ipcMain) {
   ipcMain.handle('updateCard', (_, id, input) => {
     const data = normalizeCardData(input);
     const allowed = ['name','type','set_name','rarity','cost','power','toughness',
-                     'rules_text','flavor_text','tags','custom_fields','notes','image_path'];
+                     'rules_text','flavor_text','tags','custom_fields','notes','image_path','template_override_id'];
     const fields = [];
     const values = [];
     for (const key of allowed) {
       if (data[key] !== undefined) { fields.push(`${key} = ?`); values.push(data[key]); }
+    }
+    if (data.template_override_id) {
+      const card = queryOne('SELECT project_id FROM cards WHERE id = ?', [id]);
+      const tpl = getTemplate(data.template_override_id);
+      if (!card || !tpl || tpl.project_id !== card.project_id) throw new Error('template override must be a template of the same project');
     }
     if (fields.length === 0) return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
     fields.push("updated_at = datetime('now')");
@@ -285,6 +370,11 @@ function registerIpcHandlers(ipcMain) {
     run(`UPDATE cards SET ${fields.join(', ')} WHERE id = ?`, values);
     return queryOne('SELECT * FROM cards WHERE id = ?', [id]);
   });
+
+  // ── TEMPLATE RULES ────────────────────────────────────────
+
+  ipcMain.handle('getTemplateRules', (_, projectId) => listTemplateRules(projectId));
+  ipcMain.handle('saveTemplateRules', (_, projectId, rules) => saveTemplateRules(projectId, rules));
 
   ipcMain.handle('deleteCard', (_, id) => {
     run('DELETE FROM cards WHERE id = ?', [id]);
@@ -428,4 +518,5 @@ function registerIpcHandlers(ipcMain) {
 module.exports = {
   initDatabase, registerIpcHandlers, queryCards, getCard, tagList, normalizeCardData,
   listTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
+  listTemplateRules, saveTemplateRules, listAssets, applyAssetChanges, inTransaction,
 };
