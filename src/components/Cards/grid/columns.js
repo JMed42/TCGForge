@@ -3,13 +3,15 @@ import { useStore } from '../../../store'
 import { allFieldsInOrder, fieldsForType } from '../../../cardModel/model'
 import { cellKey, getFieldValue } from './cardFields'
 import { filterCards } from './gridOps'
+import { plainFitOf } from '../../Fit/useFit'
 
-const WIDTH = { text: 140, longText: 280, number: 72, choice: 120, yesNo: 70, image: 150, tags: 150, cardType: 120 }
+const WIDTH = { text: 140, longText: 280, number: 72, choice: 120, yesNo: 70, image: 150, tags: 150, cardType: 120, fit: 180 }
 
 /**
  * Database columns from the card model. With a type filter: that type's fields. Without: a
- * "Card type" column, then every field (type by type, each once).
- * Column: { key (cell key), fieldKey (model key, null for name/type), label, kind, options, width }
+ * "Card type" column, then every field (type by type, each once). After Name: the read-only Fit
+ * column (src/components/Fit).
+ * Column: { key (cell key), fieldKey (model key, null for name/type/fit), label, kind, options, width, readOnly? }
  */
 export function gridColumns(model, cardTypeId) {
   const fields = cardTypeId ? fieldsForType(model, Number(cardTypeId)) : allFieldsInOrder(model)
@@ -21,9 +23,9 @@ export function gridColumns(model, cardTypeId) {
     options: f.options || [],
     width: f.key === 'name' ? 190 : Math.max(WIDTH[f.kind] || 130, Math.round(f.label.length * 7.5 + 30)), // fit the header
   }))
-  if (!cardTypeId) {
-    cols.splice(1, 0, { key: 'card_type_id', fieldKey: null, label: 'Card type', kind: 'cardType', options: model.types.map((t) => t.name), width: WIDTH.cardType })
-  }
+  const extra = [{ key: 'fit', fieldKey: null, label: 'Fit', kind: 'fit', options: [], width: WIDTH.fit, readOnly: true }]
+  if (!cardTypeId) extra.push({ key: 'card_type_id', fieldKey: null, label: 'Card type', kind: 'cardType', options: model.types.map((t) => t.name), width: WIDTH.cardType })
+  cols.splice(1, 0, ...extra)
   return cols
 }
 
@@ -35,9 +37,11 @@ export function makeApplicable(model) {
 
 const textOf = (card, fieldKey) => getFieldValue(card, cellKey(fieldKey))
 
+// The Fit filter uses saved results (not what is being typed), so a row doesn't vanish mid-edit.
 export function filteredCardsOf(state) {
   const missing = state.missingArtOnly && state.missingArt ? new Set(state.missingArt.cardIds) : null
-  return filterCards(state.cards, state.cardFilters, textOf, { missingIds: missing })
+  const fitOf = state.cardFilters.fit ? plainFitOf(state.fitCache) : null
+  return filterCards(state.cards, state.cardFilters, textOf, { missingIds: missing, fitOf })
 }
 
 /** The cards the Database tab shows (filters applied), memoised. */
@@ -46,5 +50,9 @@ export function useFilteredCards() {
   const filters = useStore((s) => s.cardFilters)
   const missingOnly = useStore((s) => s.missingArtOnly)
   const missing = useStore((s) => s.missingArt)
-  return useMemo(() => filteredCardsOf({ cards, cardFilters: filters, missingArtOnly: missingOnly, missingArt: missing }), [cards, filters, missingOnly, missing])
+  const fitCache = useStore((s) => (s.cardFilters.fit ? s.fitCache : null))
+  return useMemo(
+    () => filteredCardsOf({ cards, cardFilters: filters, missingArtOnly: missingOnly, missingArt: missing, fitCache }),
+    [cards, filters, missingOnly, missing, fitCache],
+  )
 }

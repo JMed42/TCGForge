@@ -23,7 +23,7 @@ export const useStore = create((set, get) => ({
   cards: [],
   selectedCardIds: [],
   // Applied in the renderer (src/components/Cards/grid/gridOps.js filterCards).
-  cardFilters: { search: '', cardTypeId: '', fieldKey: '', fieldOp: 'contains', fieldValue: '' },
+  cardFilters: { search: '', cardTypeId: '', fieldKey: '', fieldOp: 'contains', fieldValue: '', fit: '', fitBelowPt: 7 },
 
   // Documents
   documents: [],

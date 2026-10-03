@@ -5,15 +5,16 @@ import { allFieldsInOrder } from '../../cardModel/model';
 
 const control = 'px-2 py-1.5 bg-surface-2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-accent';
 
-// Database filters: text search across every field, card type, and one "field is / contains"
-// condition. Applied in the renderer, so exports use exactly the cards on screen.
+// Database filters: text search across every field, card type, one "field is / contains"
+// condition, and fit (overflow, shrunk below N pt, …). Applied in the renderer, so exports use
+// exactly the cards on screen.
 export default function CardFilters() {
   const filters = useStore((s) => s.cardFilters);
   const model = useStore((s) => s.cardModel);
   const set = (patch) => useStore.getState().setCardFilters(patch);
   const fields = useMemo(() => allFieldsInOrder(model).filter((f) => f.kind !== 'image'), [model]);
   const field = fields.find((f) => f.key === filters.fieldKey);
-  const active = filters.search || filters.cardTypeId || filters.fieldKey;
+  const active = filters.search || filters.cardTypeId || filters.fieldKey || filters.fit;
   const needsValue = filters.fieldOp === 'contains' || filters.fieldOp === 'is';
 
   return (
@@ -48,8 +49,23 @@ export default function CardFilters() {
           ))}
         </>
       )}
+      {/* Fit: from the background fit check (src/components/Fit). */}
+      <select data-testid="filter-fit" value={filters.fit} onChange={(e) => set({ fit: e.target.value })} className={control} title="Cards whose text doesn't fit as set">
+        <option value="">Any fit</option>
+        <option value="overflow">Fit: overflow</option>
+        <option value="shrunk">Fit: shrunk</option>
+        <option value="below">Fit: shrunk below…</option>
+        <option value="hidden">Fit: text hidden</option>
+        <option value="unchecked">Fit: not checked yet</option>
+      </select>
+      {filters.fit === 'below' && (
+        <label className="inline-flex items-center gap-1 text-xs text-text-muted">
+          <input data-testid="filter-fit-below" type="number" min={1} max={72} step={0.5} value={filters.fitBelowPt} onChange={(e) => set({ fitBelowPt: e.target.value })} className={`${control} w-16`} />
+          pt
+        </label>
+      )}
       {active && (
-        <button onClick={() => set({ search: '', cardTypeId: '', fieldKey: '', fieldOp: 'contains', fieldValue: '' })} className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-text-muted hover:text-text-primary">
+        <button onClick={() => set({ search: '', cardTypeId: '', fieldKey: '', fieldOp: 'contains', fieldValue: '', fit: '' })} className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-text-muted hover:text-text-primary">
           <X size={13} /> Clear filters
         </button>
       )}

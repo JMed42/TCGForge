@@ -87,3 +87,30 @@ test('filters: search across fields, card type, field conditions, missing art', 
   assert.deepEqual(ids({ fieldKey: 'rules_text', fieldOp: 'notEmpty' }), [1])
   assert.deepEqual(ids({}, { missingIds: new Set([2]) }), [2])
 })
+
+test('the Fit column is worked out, not typed: paste, fill-down and clear skip it', () => {
+  const withFit = [columns[0], { key: 'fit', label: 'Fit', kind: 'fit', readOnly: true }, ...columns.slice(1)]
+  const paste = planPaste({ grid: [['Fits', 'Spell']], range: rangeOf({ row: 0, col: 1 }, { row: 0, col: 1 }), rows, columns: withFit, applicable, types })
+  assert.deepEqual(paste.writes, [{ cardId: 10, key: 'card_type_id', value: '2' }])
+  assert.match(paste.reasons[0], /Fit is worked out/)
+  const fill = planFillDown({ range: rangeOf({ row: 0, col: 1 }, { row: 2, col: 1 }), rows, columns: withFit, applicable, raw: () => 'x' })
+  assert.deepEqual(fill.writes, [])
+  assert.deepEqual(planClear({ range: rangeOf({ row: 0, col: 1 }, { row: 2, col: 1 }), rows, columns: withFit, applicable }).writes, [])
+})
+
+test('the Fit filter reads each card\'s fit summary', () => {
+  const cards = [{ id: 1, name: 'A' }, { id: 2, name: 'B' }, { id: 3, name: 'C' }]
+  const r = (status, pt) => ({ status, pt, lineHeight: 1.2, basePt: 9, minPt: 6.5, fill: 1 })
+  const summaries = {
+    1: { status: 'overflow', worst: null, items: [{ layerId: 'rules', label: 'rules', result: r('overflow', 6.5) }] },
+    2: { status: 'shrunk', worst: null, items: [{ layerId: 'rules', label: 'rules', result: r('shrunk', 7.5) }] },
+  }
+  const fitOf = (c) => summaries[c.id] || null
+  const ids = (f) => filterCards(cards, f, () => '', { fitOf }).map((c) => c.id)
+  assert.deepEqual(ids({ fit: 'overflow' }), [1])
+  assert.deepEqual(ids({ fit: 'shrunk' }), [2])
+  assert.deepEqual(ids({ fit: 'below', fitBelowPt: 7 }), [1])
+  assert.deepEqual(ids({ fit: 'below', fitBelowPt: '8' }), [1, 2])
+  assert.deepEqual(ids({ fit: 'unchecked' }), [3])
+  assert.deepEqual(ids({ fit: '' }), [1, 2, 3])
+})

@@ -1,6 +1,8 @@
 // Pure helpers for the Database grid: tab-separated text as Excel and Google Sheets put it on the
 // clipboard, cell ranges, paste and fill-down planning, value parsing per field kind, filters.
 
+import { matchesFitFilter } from '../../../designer/fit/summary.ts'
+
 // ----- TSV (clipboard) -----
 
 /** Excel/Sheets clipboard text -> rows of cells. Quoted cells may hold tabs, newlines and "". */
@@ -96,7 +98,8 @@ export function planPaste({ grid, range, rows, columns, applicable, types }) {
       if (!column) continue
       const text = single ? grid[0][0] : grid[dr]?.[dc]
       if (text === undefined) continue
-      if (!applicable(card, column) || column.readOnly) { skipped++; reasons.add(`${column.label} isn't used by ${card.card_type || 'this type'}`); continue }
+      if (column.readOnly) { skipped++; reasons.add(`${column.label} is worked out, not typed`); continue }
+      if (!applicable(card, column)) { skipped++; reasons.add(`${column.label} isn't used by ${card.card_type || 'this type'}`); continue }
       const v = parseCellValue(column, text, types)
       if ('skip' in v) { skipped++; reasons.add(v.skip); continue }
       writes.push({ cardId: card.id, key: column.key, value: v.value })
@@ -150,17 +153,21 @@ export function planClear({ range, rows, columns, applicable }) {
 // ----- filters -----
 
 /**
- * filters: { search, cardTypeId, fieldKey, fieldOp ('contains' | 'is' | 'empty' | 'notEmpty'), fieldValue }
- * text(card, key) returns a cell's text.
+ * filters: { search, cardTypeId, fieldKey, fieldOp ('contains' | 'is' | 'empty' | 'notEmpty'), fieldValue,
+ *            fit ('' | 'overflow' | 'shrunk' | 'below' | 'hidden' | 'unchecked'), fitBelowPt }
+ * text(card, key) returns a cell's text; fitOf(card) its fit summary (null: not checked yet).
  */
-export function filterCards(cards, filters, text, { missingIds = null } = {}) {
+export function filterCards(cards, filters, text, { missingIds = null, fitOf = null } = {}) {
   const q = String(filters.search || '').trim().toLowerCase()
   const typeId = filters.cardTypeId ? Number(filters.cardTypeId) : null
   const fk = filters.fieldKey || null
   const fv = String(filters.fieldValue ?? '').toLowerCase()
+  const fit = fitOf ? filters.fit || '' : ''
+  const below = Number(filters.fitBelowPt) || 7
   return cards.filter((c) => {
     if (missingIds && !missingIds.has(c.id)) return false
     if (typeId && c.card_type_id !== typeId) return false
+    if (fit && !matchesFitFilter(fitOf(c), fit, below)) return false
     if (q) {
       const hay = [c.name, c.type, c.rules_text, c.flavor_text, c.notes, c.set_name, c.rarity, ...(c.tags || []), ...Object.values(c.custom_fields || {}).map(String)]
         .join('\n').toLowerCase()

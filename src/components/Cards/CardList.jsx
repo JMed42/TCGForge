@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Plus, Search } from 'lucide-react'
 import { useStore } from '../../store'
+import { FitBadge } from '../Fit/FitStatus'
+import { useLayerLabels } from '../Fit/useFit'
 
 // The Cards tab's list: cards grouped by type, searchable, with "New card" by type.
 export default function CardList({ onCreated }) {
@@ -11,6 +13,7 @@ export default function CardList({ onCreated }) {
   const [typeFilter, setTypeFilter] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const listRef = useRef(null)
+  const labels = useLayerLabels()
 
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -88,9 +91,10 @@ export default function CardList({ onCreated }) {
                 key={c.id}
                 data-list-card={c.id}
                 onClick={() => useStore.getState().setActiveCard(c.id)}
-                className={`w-full text-left px-3 py-1.5 text-sm truncate ${c.id === activeCardId ? 'bg-accent/15 text-text-primary' : 'text-text-secondary hover:bg-surface-2'}`}
+                className={`w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm ${c.id === activeCardId ? 'bg-accent/15 text-text-primary' : 'text-text-secondary hover:bg-surface-2'}`}
               >
-                {c.name}
+                <span className="flex-1 truncate">{c.name}</span>
+                <FitBadge cardId={c.id} labels={labels} />
               </button>
             ))}
           </div>

@@ -74,8 +74,8 @@ export default function FitRunner() {
   }, [wanted, fitCache, activeCardId, failedCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    useStore.getState().setFitProgress({ total: wanted.length, pending: stale.length })
-  }, [wanted.length, stale.length])
+    useStore.getState().setFitProgress({ total: wanted.length, staleIds: new Set(stale.map((w) => w.cardId)) })
+  }, [wanted.length, stale])
 
   const finish = useCallback((b) => {
     if (b.finished) return

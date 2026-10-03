@@ -10,7 +10,7 @@ export const fitInitialState = {
   fitCache: {}, // cardId -> { hash, templateId, templateVersion, results: { layerId: FitResult } }
   fitSignatures: null, // { fonts, images }: the project's font and image files (assets index)
   fitReady: false, // the project's cards, templates, exceptions, signatures and cache are loaded
-  fitProgress: { total: 0, pending: 0 }, // background check
+  fitProgress: { total: 0, pending: 0, staleIds: new Set() }, // background check; staleIds: cards waiting for it
   liveFit: null, // { cardId, templateId, results } for the active card, as typed
 }
 
@@ -100,7 +100,8 @@ export function createFitSlice(set, get) {
 
     setFitProgress: (p) => {
       const cur = get().fitProgress
-      if (cur.total !== p.total || cur.pending !== p.pending) set({ fitProgress: p })
+      const same = cur.total === p.total && cur.staleIds.size === p.staleIds.size && [...p.staleIds].every((id) => cur.staleIds.has(id))
+      if (!same) set({ fitProgress: { total: p.total, pending: p.staleIds.size, staleIds: p.staleIds } })
     },
 
     setLiveFit: (liveFit) => set({ liveFit }),

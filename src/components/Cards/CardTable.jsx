@@ -6,6 +6,9 @@ import { markEdit } from './grid/liveTiming';
 import { gridColumns, makeApplicable, useFilteredCards } from './grid/columns';
 import { inRange, parseCellValue, parseTsv, planClear, planFillDown, planPaste, rangeOf, toTsv } from './grid/gridOps';
 import { isNumeric } from '../../cardModel/model';
+import { FitCell, FitProgress } from '../Fit/FitStatus';
+import { plainFitOf, summaryOf, useLayerLabels } from '../Fit/useFit';
+import { compareHardness, shortFit } from '../../designer/fit/summary.ts';
 
 // The Database tab: every card in a spreadsheet grid, columns from the card types' fields.
 //   Arrows / Tab / Enter move · Shift+arrows, Shift+click or drag select a range
@@ -19,7 +22,8 @@ function loadHidden(projectId) {
   try { return new Set(JSON.parse(localStorage.getItem(hiddenKey(projectId)) || '[]')); } catch { return new Set(); }
 }
 
-function CellDisplay({ card, col, types }) {
+function CellDisplay({ card, col, types, labels }) {
+  if (col.kind === 'fit') return <FitCell cardId={card.id} labels={labels} />;
   if (col.kind === 'cardType') {
     const t = types.find((x) => x.id === card.card_type_id);
     return t ? <span className="inline-flex items-center gap-1.5 text-text-secondary"><span className="w-2 h-2 rounded-full" style={{ background: t.color }} />{t.name}</span> : <span className="text-text-muted">—</span>;
@@ -104,8 +108,11 @@ export default function CardTable() {
   const cellError = useStore((s) => s.cellError);
   const actions = useStore.getState();
   const filtered = useFilteredCards();
+  const labels = useLayerLabels();
 
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+  // Sorting by Fit needs every card's results; otherwise the grid doesn't follow them.
+  const fitCacheForSort = useStore((s) => (sortConfig.key === 'fit' ? s.fitCache : null));
   const [hidden, setHidden] = useState(() => loadHidden(activeProjectId));
   const [cursorKey, setCursorKey] = useState('name');
   const [anchor, setAnchor] = useState(null); // { cardId, key } other corner of the range
@@ -130,6 +137,17 @@ export default function CardTable() {
   const rows = useMemo(() => {
     const col = allColumns.find((c) => c.key === sortConfig.key) || { key: 'name', kind: 'text' };
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    if (col.kind === 'fit') {
+      // Hardest first when ascending (problems on top); cards not checked yet last.
+      const fitOf = plainFitOf(fitCacheForSort);
+      const worst = new Map(filtered.map((c) => [c.id, fitOf(c)?.worst?.result || null]));
+      return [...filtered].sort((a, b) => {
+        const x = worst.get(a.id);
+        const y = worst.get(b.id);
+        if (!x || !y) return (x ? -1 : y ? 1 : 0) || a.id - b.id;
+        return compareHardness(y, x) * dir || a.id - b.id;
+      });
+    }
     const typeName = new Map(model.types.map((t) => [t.id, t.name]));
     const val = (c) => (col.kind === 'cardType' ? typeName.get(c.card_type_id) || '' : getFieldValue(c, col.key));
     return [...filtered].sort((a, b) => {
@@ -143,7 +161,7 @@ export default function CardTable() {
       const x = av.toLowerCase(); const y = bv.toLowerCase();
       return x < y ? -dir : x > y ? dir : a.id - b.id;
     });
-  }, [filtered, sortConfig, allColumns, model.types]);
+  }, [filtered, sortConfig, allColumns, model.types, fitCacheForSort]);
 
   // Cursor and range as indexes into the current rows and columns.
   const rowIndex = rows.findIndex((c) => c.id === activeCardId);
@@ -189,6 +207,7 @@ export default function CardTable() {
     const card = rows[rowIndex];
     const col = columns[colIndex];
     if (!card || !col) return;
+    if (col.readOnly) { say('Fit is worked out from the card and its template: edit the card\'s text, or the template\'s fit settings in the Designer.'); return; }
     if (!applicable(card, col)) { say(`${col.label} isn't used by ${card.card_type || 'this card type'}.`); return; }
     if (col.kind === 'yesNo') { actions.commitCell(card.id, col.key, getFieldRaw(card, col.key) !== true); return; }
     if (col.kind === 'image') { say('Paste an image here with Ctrl+V, or use the Cards tab to choose a file.'); return; }
@@ -222,7 +241,11 @@ export default function CardTable() {
       const line = [];
       for (let c = range.c0; c <= range.c1; c++) {
         const col = columns[c];
-        if (!applicable(card, col)) line.push('');
+        if (col.kind === 'fit') {
+          const entry = useStore.getState().fitCache[card.id];
+          const worst = summaryOf(entry, labels)?.worst;
+          line.push(worst ? shortFit(worst) : '');
+        } else if (!applicable(card, col)) line.push('');
         else if (col.kind === 'cardType') line.push(model.types.find((t) => t.id === card.card_type_id)?.name || '');
         else if (col.kind === 'yesNo') line.push(getFieldRaw(card, col.key) === true ? 'TRUE' : 'FALSE');
         else line.push(getFieldValue(card, col.key));
@@ -416,7 +439,7 @@ export default function CardTable() {
                         onMouseEnter={() => onCellEnter(card, col)}
                         onDoubleClick={() => { if (!editing) startEdit(); }}
                       >
-                        {ok ? <CellDisplay card={card} col={col} types={model.types} /> : <span className="text-text-muted/50">·</span>}
+                        {ok ? <CellDisplay card={card} col={col} types={model.types} labels={labels} /> : <span className="text-text-muted/50">·</span>}
                         {isEditing && <CellEditor card={card} col={col} initial={editing.initial} onDone={onEditDone} />}
                       </td>
                     );
@@ -442,7 +465,8 @@ export default function CardTable() {
         {message ? <span className="text-text-secondary" data-testid="grid-message">{message}</span> : (
           <span className="hidden lg:inline">Shift selects · Ctrl+C / Ctrl+V with Excel · Ctrl+D fills down · Ctrl+Z undo</span>
         )}
-        {cellError && <span className="text-danger ml-auto" data-testid="cell-error">{cellError}</span>}
+        {cellError && <span className="text-danger" data-testid="cell-error">{cellError}</span>}
+        <span className="ml-auto"><FitProgress /></span>
       </div>
     </div>
   );
