@@ -9,7 +9,7 @@ import { absoluteBox, findRef, mapLayer, parentBoxOf, trimBox, uniqueId, walk } 
 
 export const LAYER_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 
-export type LayerKind = 'text' | 'richText' | 'image' | 'rect' | 'roundRect' | 'ellipse' | 'stack' | 'group'
+export type LayerKind = 'text' | 'richText' | 'image' | 'rect' | 'roundRect' | 'ellipse' | 'stack' | 'group' | 'iconRepeat'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -110,7 +110,7 @@ const DEFAULTS: Record<LayerKind, { layer: Omit<Layer, 'id'>; w: number; h: numb
   },
   richText: {
     base: 'rules', w: 45, h: 20,
-    layer: { type: 'richText', text: 'Card text with **bold** and *italic*.', style: { font: 'Georgia', sizePt: 8, color: '#ffffff' }, fit: { strategy: ['shrink', 'tightenLeading'], minPt: 6 } } as Omit<Layer, 'id'>,
+    layer: { type: 'richText', text: 'Card text with **bold** and *italic*.', style: { font: 'Georgia', sizePt: 8, color: '#ffffff' }, fit: { strategy: ['shrink', 'tightenLeading'], minPt: 6 }, keywords: true } as Omit<Layer, 'id'>,
   },
   image: { base: 'image', w: 40, h: 30, layer: { type: 'image', src: '{{image_path}}', objectFit: 'cover', placeholder: 'proxy' } as Omit<Layer, 'id'> },
   rect: { base: 'shape', w: 30, h: 15, layer: { type: 'shape', shape: 'rect', fill: '#7c6ef0' } as Omit<Layer, 'id'> },
@@ -118,6 +118,8 @@ const DEFAULTS: Record<LayerKind, { layer: Omit<Layer, 'id'>; w: number; h: numb
   ellipse: { base: 'shape', w: 15, h: 15, layer: { type: 'shape', shape: 'ellipse', fill: '#7c6ef0' } as Omit<Layer, 'id'> },
   stack: { base: 'stack', w: 45, h: 30, layer: { type: 'stack', direction: 'vertical', gapMm: 1.5, children: [] } as unknown as Omit<Layer, 'id'> },
   group: { base: 'group', w: 30, h: 20, layer: { type: 'group', children: [] } as unknown as Omit<Layer, 'id'> },
+  // Cost pips: one symbol per point of cost (the Designer fills in the project's first symbol).
+  iconRepeat: { base: 'pips', w: 30, h: 5, layer: { type: 'iconRepeat', count: 'cost', icon: '', direction: 'ltr', gapMm: 0.5 } as Omit<Layer, 'id'> },
 }
 
 // A new stack starts with two flowing text blocks, so it's visible and shows what it does: the

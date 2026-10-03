@@ -67,6 +67,15 @@ test('a new stack starts with two flowing text blocks; rich text defaults to whi
   assert.deepEqual(stack.children[1].fit, { strategy: ['hide'] })
   const r = addLayer(tpl(), 'richText')
   assert.equal((getLayer(r.template, r.id) as any).style.color, '#ffffff')
+  assert.equal((getLayer(r.template, r.id) as any).keywords, true, 'new rich text adds keyword reminder text')
+})
+
+test('icon repeat: cost pips, a short strip centred on the card', () => {
+  const r = addLayer(tpl(), 'iconRepeat')
+  const l = getLayer(r.template, r.id) as any
+  assert.equal(r.id, 'pips')
+  assert.deepEqual([l.type, l.count, l.icon, l.direction, l.gapMm], ['iconRepeat', 'cost', '', 'ltr', 0.5])
+  assert.deepEqual(absoluteBox(r.template, r.id), { x: 16.5, y: 41.5, w: 30, h: 5 })
 })
 
 test('duplicate sits above the original, offset 2 mm, with fresh ids for nested children', () => {

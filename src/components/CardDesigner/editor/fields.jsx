@@ -16,13 +16,14 @@ export function Field({ label, children, wide = false }) {
 }
 
 // Number input that tolerates intermediate text ("-", "1.") while typing.
-export function NumberField({ label, value, onChange, step = 1, min, max, wide }) {
+export function NumberField({ label, value, onChange, step = 1, min, max, wide, testid }) {
   const [text, setText] = useState(value ?? '')
   useEffect(() => { setText(value ?? '') }, [value])
   return (
     <Field label={label} wide={wide}>
       <input
         type="number"
+        data-testid={testid}
         className={inputClass}
         value={text}
         step={step}
@@ -40,10 +41,11 @@ export function NumberField({ label, value, onChange, step = 1, min, max, wide }
   )
 }
 
-export function TextField({ label, value, onChange, placeholder, list, wide, mono }) {
+export function TextField({ label, value, onChange, placeholder, list, wide, mono, testid }) {
   return (
     <Field label={label} wide={wide}>
       <input
+        data-testid={testid}
         className={`${inputClass} ${mono ? 'font-mono' : ''}`}
         value={value ?? ''}
         placeholder={placeholder}
@@ -55,10 +57,10 @@ export function TextField({ label, value, onChange, placeholder, list, wide, mon
   )
 }
 
-export function SelectField({ label, value, onChange, options, wide }) {
+export function SelectField({ label, value, onChange, options, wide, testid }) {
   return (
     <Field label={label} wide={wide}>
-      <select className={inputClass} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+      <select data-testid={testid} className={inputClass} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
         {options.map((o) => {
           const [v, text] = Array.isArray(o) ? o : [o, o]
           return <option key={v} value={v}>{text}</option>

@@ -10,6 +10,7 @@
 
 import { createHistory, pushHistory, undoHistory, redoHistory } from './components/CardDesigner/editor/history'
 import { validateTemplate } from './designer/schema/schema.ts'
+import { stableStringify } from './designer/fit/hash.ts'
 import { assetKey } from './designer/render/assetUrl.ts'
 import { sampleCards } from './components/CardDesigner/sampleCards'
 
@@ -20,7 +21,9 @@ export const designerInitialState = {
   sampleScope: 'template', // 'template': cards the open template draws; 'all': every card
   draft: null,
   draftError: null, // stored JSON could not be opened
-  savedJson: null, // JSON.stringify of the last saved template, for `dirty`
+  // The last saved template as key-order-independent JSON, for `dirty`: the saved copy comes back
+  // from the schema with its keys in schema order, a new layer's keys are in the order it was built.
+  savedJson: null,
   dirty: false,
   selectedIds: [], // layer ids; multi-select on the canvas and in the layer list
   history: createHistory(),
@@ -39,7 +42,7 @@ const ipcMessage = (error) => String(error?.message || error).replace(/^Error in
 
 export function createDesignerSlice(set, get) {
   const setDraft = (draft, extra = {}) => {
-    set({ draft, dirty: JSON.stringify(draft) !== get().savedJson, ...extra })
+    set({ draft, dirty: stableStringify(draft) !== get().savedJson, ...extra })
   }
 
   return {
@@ -78,7 +81,7 @@ export function createDesignerSlice(set, get) {
       }
       try {
         const draft = parseStored(row.content)
-        set({ ...base, draft, draftError: null, savedJson: JSON.stringify(draft) })
+        set({ ...base, draft, draftError: null, savedJson: stableStringify(draft) })
       } catch (error) {
         set({ ...base, draft: null, draftError: error.message, savedJson: null })
       }
@@ -253,8 +256,8 @@ export function createDesignerSlice(set, get) {
         const saved = JSON.parse(row.content)
         set((s) => ({
           templates: s.templates.map((t) => (t.id === row.id ? row : t)),
-          savedJson: JSON.stringify(saved),
-          dirty: JSON.stringify(s.draft) !== JSON.stringify(saved),
+          savedJson: stableStringify(saved),
+          dirty: stableStringify(s.draft) !== stableStringify(saved),
         }))
         return null
       } catch (error) {

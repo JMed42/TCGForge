@@ -6,6 +6,7 @@ import {
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../store'
 import { isContainer } from '../../designer/schema/types.ts'
+import { useLibrary } from '../../designer/library/LibraryContext.ts'
 import { findRef } from '../../designer/layout/tree.ts'
 import {
   addLayer, deleteLayers, duplicateLayers, getLayer, moveInParent, moveToParent, renameLayer, siblingsOf, updateLayer,
@@ -19,6 +20,7 @@ const ADD_KINDS = [
   ['roundRect', 'Rounded rectangle', RectangleHorizontal],
   ['ellipse', 'Ellipse', Circle],
   ['stack', 'Stack: text blocks that push each other down', Rows3],
+  ['iconRepeat', 'Icon repeat: a symbol N times (cost pips)', Repeat],
   ['group', 'Group', Group],
 ]
 
@@ -43,6 +45,7 @@ export default function LayersPanel() {
   })))
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [menuOpen, setMenuOpen] = useState(false)
+  const library = useLibrary()
   const [renaming, setRenaming] = useState(null) // { id, value, error }
   const [drop, setDrop] = useState(null) // { id, where: 'before' | 'after' | 'into' }
   const dragId = useRef(null)
@@ -74,7 +77,10 @@ export default function LayersPanel() {
     const sel = single && getLayer(draft, single)
     const parentId = sel && isContainer(sel) ? sel.id : singleRef ? singleRef.parentId : null
     const r = addLayer(draft, kind, parentId)
-    edit(() => r.template, { select: [r.id] })
+    // Icon repeat draws a Library symbol: start with the project's first one.
+    const first = kind === 'iconRepeat' ? library.symbols.keys().next().value : undefined
+    const template = first ? updateLayer(r.template, r.id, { icon: first }) : r.template
+    edit(() => template, { select: [r.id] })
   }
 
   const commitRename = () => {

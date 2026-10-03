@@ -14,10 +14,11 @@ const FUNCTION_SNIPPETS = {
 
 /**
  * A string property with {{expression}} bindings (or, with `bare`, a bare expression such as
- * visibleIf). The picker inserts project fields and whitelisted functions at the caret; the line
- * below shows the result for the current sample card, or the error.
+ * visibleIf). The picker inserts project fields and whitelisted functions at the caret (and, with
+ * `symbols`, the Library's {symbols} for text); the line below shows the result for the current
+ * sample card, or the error.
  */
-export default function BindingInput({ value, onChange, fields, card, multiline = false, bare = false, placeholder, testid }) {
+export default function BindingInput({ value, onChange, fields, card, multiline = false, bare = false, symbols = false, placeholder, testid }) {
   const ref = useRef(null)
   const library = useLibrary()
   const scope = useMemo(() => cardScope(card, library.variables), [card, library])
@@ -34,12 +35,15 @@ export default function BindingInput({ value, onChange, fields, card, multiline 
     return r.errors.length ? { text: r.errors[0], ok: false } : { text: r.text === '' ? '(empty)' : r.text, ok: true }
   }, [value, scope, bare])
 
+  const symbolCodes = symbols ? [...library.symbols.keys()] : []
+
+  // A symbol is inserted as written ({fire}); everything else as a binding.
   const insert = (token) => {
     const el = ref.current
     const v = value ?? ''
     const start = el?.selectionStart ?? v.length
     const end = el?.selectionEnd ?? v.length
-    const piece = bare ? token : `{{${token}}}`
+    const piece = token.startsWith('symbol:') ? `{${token.slice(7)}}` : bare ? token : `{{${token}}}`
     onChange(v.slice(0, start) + piece + v.slice(end))
     requestAnimationFrame(() => {
       if (!el) return
@@ -80,6 +84,11 @@ export default function BindingInput({ value, onChange, fields, card, multiline 
         {variables.length > 0 && (
           <optgroup label="Variables (Library)">
             {variables.map((key) => <option key={key} value={key}>{bare ? key : `{{${key}}}`}  = {library.variables[key]}</option>)}
+          </optgroup>
+        )}
+        {symbolCodes.length > 0 && (
+          <optgroup label="Symbols (Library)">
+            {symbolCodes.map((code) => <option key={code} value={`symbol:${code}`}>{`{${code}}`}</option>)}
           </optgroup>
         )}
         <optgroup label="Functions">

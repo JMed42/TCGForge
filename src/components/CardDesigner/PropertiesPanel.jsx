@@ -12,6 +12,7 @@ import { Field, NumberField, TextField, SelectField, ColorField, Section } from 
 import BindingInput from './BindingInput'
 import { describeFit } from '../../designer/fit/summary.ts'
 import { textIdsOf } from './WorstCase'
+import { useLibrary } from '../../designer/library/LibraryContext.ts'
 
 // The fit of the selected text (or of the text in the selected stack) on the sample card, from
 // DesignerFitProbe: measured the same way as the Fit column.
@@ -220,6 +221,8 @@ export default function PropertiesPanel() {
   })))
   const fields = useMemo(() => (cardModel.fields.length ? bindingFields(cardModel) : bindableFields(cards)), [cardModel, cards])
   const fonts = useProjectFonts(activeProjectId, assetVersions)
+  const library = useLibrary()
+  const openLibrary = useStore((s) => s.openLibrary)
   const card = cards.find((c) => c.id === previewCardId) || null
   if (!draft) return null
   if (selectedIds.length > 1) {
@@ -272,7 +275,7 @@ export default function PropertiesPanel() {
       {isText && (
         <Section title={layer.type === 'richText' ? 'Rich text' : 'Text'}>
           <Field wide label={layer.type === 'richText' ? 'Text (**bold**, *italic*)' : 'Text'}>
-            <BindingInput multiline testid="text-value" value={layer.text} onChange={(v) => set('text', v)} fields={fields} card={card} />
+            <BindingInput multiline symbols testid="text-value" value={layer.text} onChange={(v) => set('text', v)} fields={fields} card={card} />
           </Field>
           <TextField wide label="Font" list="designer-fonts" value={style.font} onChange={(v) => setIn('style', 'font', v)} />
           <datalist id="designer-fonts">
@@ -301,6 +304,12 @@ export default function PropertiesPanel() {
             In this order: shrink down to the min size, tighten the line spacing, then hide. Text that still
             doesn't fit is flagged as overflow in the Cards screen's Fit column.
           </p>
+          <Field wide label="Keywords">
+            <span className="flex items-center gap-1.5 text-xs text-text-secondary normal-case" title="Keywords from the Library get their reminder text in this layer, on cards where reminder text is shown">
+              <input type="checkbox" data-testid="layer-keywords" checked={Boolean(layer.keywords)} onChange={(e) => set('keywords', e.target.checked || undefined)} />
+              Add reminder text after keywords{library.keywords.length ? ` (${library.keywords.length} in the Library)` : ''}
+            </span>
+          </Field>
           <FitReadout layer={layer} card={card} />
         </Section>
       )}
@@ -362,11 +371,23 @@ export default function PropertiesPanel() {
 
       {layer.type === 'iconRepeat' && (
         <Section title="Icon repeat">
-          <p className="col-span-2 text-[10px] text-text-muted">Symbols and icon repeaters render from Phase 4; the layer is kept and outlined until then.</p>
+          <p className="col-span-2 text-[10px] text-text-muted leading-snug" data-testid="icon-repeat-help">
+            Draws a Library symbol N times, e.g. one pip per point of cost. Each icon is as tall as the
+            layer (as wide, top to bottom); when N don't fit, they move closer together.
+          </p>
           <Field wide label="Count (expression)">
-            <BindingInput bare testid="icon-count" value={layer.count} onChange={(v) => set('count', v)} fields={fields} card={card} />
+            <BindingInput bare testid="icon-count" value={layer.count} onChange={(v) => set('count', v)} fields={fields} card={card} placeholder="e.g. cost" />
           </Field>
-          <TextField label="Icon" value={layer.icon} onChange={(v) => set('icon', v)} />
+          <TextField wide label="Icon (symbol shortcode, or a {{binding}})" list="designer-symbols" value={layer.icon} onChange={(v) => set('icon', v.trim().replace(/^\{([^{}]+)\}$/, '$1'))} testid="icon-symbol" />
+          <datalist id="designer-symbols">
+            {[...library.symbols.keys()].map((code) => <option key={code} value={code} />)}
+          </datalist>
+          <SelectField label="Direction" value={layer.direction || 'ltr'} options={[['ltr', 'Left to right'], ['rtl', 'Right to left'], ['ttb', 'Top to bottom'], ['btt', 'Bottom to top']]} onChange={(v) => set('direction', v)} testid="icon-direction" />
+          <NumberField label="Gap (mm)" value={layer.gapMm ?? 0.5} min={0} step={0.25} onChange={(v) => set('gapMm', v)} testid="icon-gap" />
+          <p className="col-span-2 text-[10px] text-text-muted leading-snug">
+            {library.symbols.size ? `Symbols: ${[...library.symbols.keys()].join(', ')}. ` : 'No symbols yet. '}
+            <button className="text-accent hover:underline" onClick={() => openLibrary('symbols')} data-testid="icon-manage">Manage symbols in the Library</button>
+          </p>
         </Section>
       )}
 
