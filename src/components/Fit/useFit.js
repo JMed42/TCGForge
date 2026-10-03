@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../store'
 import { useParsedTemplates } from './templates'
 import { layerLabel } from '../../designer/fit/bindings.ts'
@@ -31,9 +32,10 @@ export function summaryOf(entry, labels) {
  * stale: there is a newer change being checked (the summary shown is from before it).
  */
 export function useCardFit(cardId, labels) {
-  const entry = useStore((s) => s.fitCache[cardId])
-  const live = useStore((s) => (s.liveFit?.cardId === cardId ? s.liveFit : null))
-  const stale = useStore((s) => s.fitProgress.staleIds.has(cardId))
+  // One subscription per card (the Fit column has one per row).
+  const [entry, live, stale] = useStore(useShallow((s) => [
+    s.fitCache[cardId], s.liveFit?.cardId === cardId ? s.liveFit : null, s.fitProgress.staleIds.has(cardId),
+  ]))
   const summary = useMemo(() => summaryOf(live || entry, labels), [live, entry, labels])
   return { summary, stale: stale && !live, live: Boolean(live), templateId: (live || entry)?.templateId ?? null }
 }

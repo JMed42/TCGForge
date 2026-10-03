@@ -11,7 +11,11 @@ const ICON = { overflow: AlertTriangle, hidden: EyeOff, shrunk: ArrowDown, fits:
 
 export const fitTooltip = (summary) => summary.items.map((i) => `${i.label}: ${describeFit(i.result)}`).join('\n')
 
-/** The Fit column cell: the hardest text layer, "+N" more with problems, a spinner while re-checking. */
+/**
+ * The Fit column cell: the hardest text layer, "+N" more with problems, a spinner while
+ * re-checking. One per row, so it is kept light: a plain ✓ for cards that fit, and the tooltip
+ * is written when the pointer arrives.
+ */
 export function FitCell({ cardId, labels }) {
   const { summary, stale } = useCardFit(cardId, labels)
   if (!summary) {
@@ -21,12 +25,21 @@ export function FitCell({ cardId, labels }) {
   }
   if (!summary.worst) return <span className="text-text-muted" title="No text on this card's template" data-fit-status="empty">—</span>
   const w = summary.worst
-  const Icon = ICON[w.result.status]
+  const status = w.result.status
+  const tooltip = (e) => { e.currentTarget.title = fitTooltip(summary) }
+  if (status === 'fits') {
+    return (
+      <span className={`text-text-muted ${stale ? 'opacity-50' : ''}`} onMouseEnter={tooltip} data-fit-status="fits">
+        <span className="text-success">✓</span> Fits{stale && ' …'}
+      </span>
+    )
+  }
+  const Icon = ICON[status]
   const more = summary.items.filter((i) => i.result.status !== 'fits').length - 1
   return (
-    <span className={`inline-flex items-center gap-1 max-w-full ${TONE[w.result.status]}`} title={fitTooltip(summary)} data-fit-status={w.result.status}>
+    <span className={`inline-flex items-center gap-1 max-w-full ${TONE[status]}`} onMouseEnter={tooltip} data-fit-status={status}>
       <Icon size={13} className={`flex-shrink-0 ${stale ? 'opacity-50' : ''}`} />
-      <span className={`truncate ${w.result.status === 'fits' ? 'text-text-muted' : ''} ${stale ? 'opacity-50' : ''}`}>{shortFit(w)}</span>
+      <span className={`truncate ${stale ? 'opacity-50' : ''}`}>{shortFit(w)}</span>
       {more > 0 && <span className="text-text-muted text-[10px]">+{more}</span>}
       {stale && <Loader2 size={11} className="flex-shrink-0 animate-spin text-text-muted" />}
     </span>
