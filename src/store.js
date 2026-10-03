@@ -1,9 +1,11 @@
 import { create } from 'zustand'
 import { toUiCard, toUiProject } from './utils/cardData'
 import { createDesignerSlice } from './designerSlice'
+import { createCardsSlice } from './cardsSlice'
 
 export const useStore = create((set, get) => ({
   ...createDesignerSlice(set, get),
+  ...createCardsSlice(set, get),
 
   // Projects
   projects: [],
@@ -48,6 +50,7 @@ export const useStore = create((set, get) => ({
 
   openProject: async (id) => {
     get().resetDesigner()
+    get().resetCardsScreen()
     set({ activeProjectId: id, activeView: 'cards' })
     await get().loadCards()
     await get().loadDocuments()

@@ -103,6 +103,9 @@ export function createDesignerSlice(set, get) {
         await window.api.deleteTemplate(id)
         if (get().activeTemplateId === id) set({ activeTemplateId: null, draft: null })
         await get().loadTemplates()
+        // Its rules and card overrides went with it (electron/database.js deleteTemplate).
+        await get().loadTemplateRules?.()
+        await get().loadCards?.()
       } catch (error) {
         console.error('Failed to delete template:', error)
       }

@@ -22,7 +22,6 @@ export default function DesignerView() {
     loadTemplates,
     setPreviewCard,
     activeProjectId,
-    bumpAsset,
     undo,
     redo,
     saveDraft,
@@ -41,7 +40,6 @@ export default function DesignerView() {
   }, [cards, previewCardId, setPreviewCard])
 
   // Files replaced on disk re-render immediately.
-  useEffect(() => window.api?.onAssetChanged?.((c) => bumpAsset(c.projectId, c.relPath)), [bumpAsset])
 
   const handleSave = async () => {
     setSaveError(await saveDraft())

@@ -15,6 +15,13 @@ export default function App() {
     loadProjects()
   }, [loadProjects])
 
+  // A file under the project changed on disk: bump its ?v= so every render reloads it.
+  useEffect(() => window.api?.onAssetChanged?.((c) => {
+    const s = useStore.getState()
+    s.bumpAsset(c.projectId, c.relPath)
+    if (c.projectId === s.activeProjectId) s.assetsChanged?.()
+  }), [])
+
   if (!activeProjectId) {
     return (
       <>
