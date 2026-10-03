@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert'
 import { hashOf, stableStringify } from '../src/designer/fit/hash.ts'
-import { engineKey, fitInputHash, fontsSignature, imagesSignature, sizesImagesByFile } from '../src/designer/fit/inputs.ts'
+import { engineKey, fitInputHash, fontFamilyOf, fontFiles, fontsSignature, imagesSignature, sizesImagesByFile, templateFamilies, templateFontsSignature } from '../src/designer/fit/inputs.ts'
 import type { FitInputs } from '../src/designer/fit/inputs.ts'
 import type { Template } from '../src/designer/schema/types.ts'
 
@@ -45,6 +45,22 @@ test('font and image signatures come from the assets index', () => {
   assert.notEqual(fontsSignature([{ ...assets[0], sha256: 'ab' }, assets[1]]), fonts, 'a changed font file')
   assert.equal(fontsSignature([assets[0], { ...assets[1], sha256: 'cc' }]), fonts, 'art is not a font')
   assert.notEqual(imagesSignature([assets[0], { ...assets[1], sha256: 'cc' }]), imagesSignature(assets))
+})
+
+test('a template\'s font signature covers only the project fonts its text uses', () => {
+  const t = { schemaVersion: 1, size: { widthMm: 63, heightMm: 88, bleedMm: 0, safeMm: 0 }, layers: [
+    { id: 'title', type: 'text', text: '{{name}}', style: { font: 'Cinzel' } },
+    { id: 's', type: 'stack', frame: { left: 0, right: 0, bottom: 0, height: 30 }, children: [{ id: 'r', type: 'richText', text: 'x', style: { font: 'Georgia' } }] },
+  ] } as Template
+  assert.equal(fontFamilyOf('assets/fonts/Cinzel-Bold.ttf'), 'cinzel')
+  assert.deepEqual([...templateFamilies(t)].sort(), ['cinzel', 'georgia'])
+  const files = (cinzel: string, other: string) => fontFiles([
+    { rel_path: 'assets/fonts/Cinzel-Bold.ttf', kind: 'font', sha256: cinzel },
+    { rel_path: 'assets/fonts/Lobster-Regular.ttf', kind: 'font', sha256: other },
+  ])
+  const sig = templateFontsSignature(t, files('a', 'b'))
+  assert.equal(templateFontsSignature(t, files('a', 'changed')), sig, 'a font the template does not use')
+  assert.notEqual(templateFontsSignature(t, files('changed', 'b')), sig, 'Cinzel, which the title uses')
 })
 
 test('images count only when one sizes itself by its file inside a stack', () => {

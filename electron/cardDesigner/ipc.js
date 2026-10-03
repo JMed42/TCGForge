@@ -190,7 +190,8 @@ function registerCardDesignerIpc(ipcMain, deps) {
       fs.writeFileSync(outPath, out.png);
       report = out.report;
     }
-    return { path: outPath, warnings: report ? report.warnings : [] };
+    // fits: the export's own fit results by layer (PNG/JPEG), to compare with the Fit column.
+    return { path: outPath, warnings: report ? report.warnings : [], fits: report && report.fits ? report.fits : {} };
   });
 
   // ── All cards (PNG/JPEG files) ──

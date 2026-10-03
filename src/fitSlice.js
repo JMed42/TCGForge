@@ -2,13 +2,13 @@
 // (fit_cache, electron/fitCache.js), the project signatures that are fit inputs, the background
 // check's progress, and the live result of the card being edited.
 
-import { fontsSignature, imagesSignature } from './designer/fit/inputs.ts'
+import { fontFiles, fontsSignature, imagesSignature } from './designer/fit/inputs.ts'
 
 const SAVE_EVERY_MS = 2000
 
 export const fitInitialState = {
   fitCache: {}, // cardId -> { hash, templateId, templateVersion, results: { layerId: FitResult } }
-  fitSignatures: null, // { fonts, images }: the project's font and image files (assets index)
+  fitSignatures: null, // { fonts, fontFiles, images }: the project's font and image files (assets index)
   fitReady: false, // the project's cards, templates, exceptions, signatures and cache are loaded
   fitProgress: { total: 0, pending: 0, staleIds: new Set() }, // background check; staleIds: cards waiting for it
   liveFit: null, // { cardId, templateId, results } for the active card, as typed
@@ -62,12 +62,12 @@ export function createFitSlice(set, get) {
       try {
         const assets = (await window.api.getAssets(activeProjectId)) || []
         if (get().activeProjectId !== activeProjectId) return
-        const next = { fonts: fontsSignature(assets), images: imagesSignature(assets) }
+        const next = { fonts: fontsSignature(assets), fontFiles: fontFiles(assets), images: imagesSignature(assets) }
         const cur = get().fitSignatures
         if (!cur || cur.fonts !== next.fonts || cur.images !== next.images) set({ fitSignatures: next })
       } catch (error) {
         console.error('Failed to read project files for fit checks:', error)
-        if (!get().fitSignatures) set({ fitSignatures: { fonts: '', images: '' } })
+        if (!get().fitSignatures) set({ fitSignatures: { fonts: '', fontFiles: [], images: '' } })
       }
     },
 

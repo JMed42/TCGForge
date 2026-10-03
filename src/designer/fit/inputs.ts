@@ -5,8 +5,8 @@
 //   the card's values as the template sees them (cardScope, which includes card_type)
 //   which template the card gets (own choice, exception, card type, project default) and that
 //     template's saved content
-//   the project's font files, and its image files when the template lets an image size itself
-//     by the file inside a stack (that image's height moves the text)
+//   the project font files the template's text uses, and the project's image files when the
+//     template lets an image size itself by the file inside a stack (its height moves the text)
 //   the fit engine's version and the browser engine's version
 
 import { cardScope } from '../expr/scope.ts'
@@ -29,6 +29,38 @@ export interface AssetRow {
 const filesSignature = (rows: AssetRow[]) => hashOf(rows.map((a) => [a.rel_path, a.sha256]).sort())
 export const fontsSignature = (assets: AssetRow[]) => filesSignature(assets.filter((a) => a.kind === 'font'))
 export const imagesSignature = (assets: AssetRow[]) => filesSignature(assets.filter((a) => a.kind !== 'font'))
+
+export interface FontFile {
+  rel: string
+  sha: string
+  family: string // lower case
+}
+
+// A project font file's family, named the way electron/cardDesigner/projectFonts.js names it:
+// "Cinzel-Bold.ttf" -> "cinzel".
+export const fontFamilyOf = (rel: string) => (rel.split('/').pop() || '').replace(/\.(ttf|otf|woff2?)$/i, '').split('-')[0].trim().toLowerCase()
+
+export const fontFiles = (assets: AssetRow[]): FontFile[] =>
+  assets.filter((a) => a.kind === 'font').map((a) => ({ rel: a.rel_path, sha: a.sha256, family: fontFamilyOf(a.rel_path) }))
+
+/** Font families the template's text asks for (lower case). */
+export function templateFamilies(t: Template): Set<string> {
+  const out = new Set<string>()
+  const walk = (layers: Layer[]) => {
+    for (const l of layers) {
+      if ((l.type === 'text' || l.type === 'richText') && l.style?.font) out.add(l.style.font.trim().toLowerCase())
+      if (l.type === 'stack' || l.type === 'group') walk(l.children)
+    }
+  }
+  walk(t.layers)
+  return out
+}
+
+/** The project font files this template uses: replacing another font doesn't re-check its cards. */
+export function templateFontsSignature(t: Template, files: FontFile[]): string {
+  const families = templateFamilies(t)
+  return hashOf(files.filter((f) => families.has(f.family)).map((f) => [f.rel, f.sha]).sort())
+}
 
 /** Does the template have an image inside a stack with no length of its own along the stack? */
 export function sizesImagesByFile(t: Template): boolean {
