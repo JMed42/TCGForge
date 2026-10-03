@@ -48,6 +48,7 @@ export interface TextLayer extends LayerBase {
   text: string
   style?: TextStyle
   fit?: Fit
+  keywords?: boolean // ext: add the library's keyword reminder text (Phase 4)
 }
 
 export interface ImageLayer extends LayerBase {
@@ -69,10 +70,11 @@ export interface ShapeLayer extends LayerBase {
 }
 
 export interface IconRepeatLayer extends LayerBase {
-  type: 'iconRepeat' // rendered from Phase 4; a placeholder until then
-  count: string
-  icon: string
+  type: 'iconRepeat' // N copies of a symbol: cost or health pips
+  count: string // bare expression, e.g. "cost"
+  icon: string // a symbol's shortcode without braces; may use {{ }}
   direction?: 'ltr' | 'rtl' | 'ttb' | 'btt'
+  gapMm?: number // ext: space between icons (default 0.5)
 }
 
 export interface StackLayer extends LayerBase {

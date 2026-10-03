@@ -6,12 +6,19 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import type { CSSProperties, ReactNode } from 'react'
 import type { Box, ImageLayer, Layer, ShapeLayer, StackLayer, GroupLayer, Template, TextLayer, IconRepeatLayer } from '../schema/types.ts'
 import { resolveFrame, lengthMm } from '../layout/frame.ts'
-import { condition, interpolate } from '../expr/expr.ts'
+import { condition, evaluate, interpolate, toText } from '../expr/expr.ts'
 import type { Scope } from '../expr/expr.ts'
 import { cardScope } from '../expr/scope.ts'
 import { assetUrl, checkSrc } from './assetUrl.ts'
 import type { AssetVersions } from './assetUrl.ts'
-import { parseRichText } from './markup.ts'
+import { parseRichText, parseSymbols } from './markup.ts'
+import type { Run } from './markup.ts'
+import { useLibrary } from '../library/LibraryContext.ts'
+import { remindersOn } from '../library/library.ts'
+import type { RenderLibrary, RenderSymbol } from '../library/library.ts'
+import { applyKeywords } from '../library/keywords.ts'
+import { variableRefs } from '../library/variables.ts'
+import { repeatCount, repeatPositions } from '../library/iconRepeat.ts'
 import { fitStack, fitText, ptToPx, DEFAULT_MIN_PT } from './fitText.ts'
 import type { FitResult, StackItem, StackMeasure, StackState } from './fitText.ts'
 
@@ -41,6 +48,8 @@ interface Ctx {
   versions?: AssetVersions
   fontsReady: boolean
   measureOnly: boolean
+  library: RenderLibrary // symbols, keywords, variables (LibraryContext)
+  reminders: boolean // keyword reminder text on for this card (its own choice, its set, the project)
   epoch: string // changes when layout can move without a prop change (fonts, images loading)
   warn: (id: string, msg: string) => void
   fitted: (id: string, r: FitResult) => void
@@ -121,11 +130,46 @@ function placementStyle(layer: Layer, place: Placement, pxPerMm: number): Placed
   return { style, box: null, fixedW: vertical || main !== undefined, fixedH: !vertical || main !== undefined }
 }
 
+// An inline symbol: a box of the symbol's size in em (so layout never waits for the image) on the
+// baseline, moved by its offset. Measure-only renders keep the box and skip the image.
+function SymbolView({ sym, layerId }: { sym: RenderSymbol; layerId: string }) {
+  const { projectId, versions, measureOnly, warn } = useRender()
+  const style: CSSProperties = { display: 'inline-block', height: `${sym.scale}em`, width: `${sym.scale * sym.aspect}em`, verticalAlign: `${sym.offset}em` }
+  if (measureOnly) return <span data-symbol={sym.code} style={style} />
+  return (
+    <img
+      data-symbol={sym.code}
+      src={assetUrl(projectId, sym.relPath, versions)}
+      alt=""
+      draggable={false}
+      style={{ ...style, objectFit: 'contain' }}
+      onError={() => warn(layerId, `symbol {${sym.code}}: image not found (${sym.relPath})`)}
+    />
+  )
+}
+
 function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
-  const { scope, pxPerMm, fontsReady, warn, fitted, unfit } = useRender()
+  const { scope, pxPerMm, fontsReady, warn, fitted, unfit, library, reminders } = useRender()
   const decisions = useContext(StackFitCtx)
   const s = layer.style || {}
-  const { text, errors } = useMemo(() => interpolate(layer.text, scope), [layer.text, scope])
+  const rich = layer.type === 'richText'
+  // Bindings, then keyword reminder text (when the layer asks for it), then markup and symbols.
+  const { text, errors, runs } = useMemo(() => {
+    const r = interpolate(layer.text, scope)
+    let out = r.text
+    const errs = [...r.errors]
+    if (layer.keywords && reminders && library.keywords.length) {
+      const k = applyKeywords(out, library.keywords, scope, { markup: rich })
+      out = k.text
+      errs.push(...k.errors)
+    }
+    for (const key of variableRefs(out)) errs.push(`unknown variable ${key}`)
+    const unknown: string[] = []
+    const opts = { symbols: library.symbols, unknown }
+    const parsed = rich ? parseRichText(out, opts) : out.includes('{') ? [parseSymbols(out, opts)] : null
+    if (library.symbols.size) for (const code of unknown) errs.push(`unknown symbol {${code}}`)
+    return { text: out, errors: errs, runs: parsed }
+  }, [layer.text, layer.keywords, rich, scope, library, reminders])
   useEffect(() => { for (const e of errors) warn(layer.id, e) }, [errors, layer.id, warn])
   const { style: outer, box, fixedW, fixedH } = placementStyle(layer, place, pxPerMm)
   // Text with a size of its own fits itself; text that sizes to its content inside a stack is
@@ -171,7 +215,7 @@ function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
     inner.style.minWidth = prevMinWidth
     setResult(r)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selfFit, text, startPt, baseLh, minPt, strategy.join(','), boxKey, pxPerMm, fontsReady, s.font, s.weight, s.italic, s.letterSpacingPt, wrap, layer.type])
+  }, [selfFit, text, startPt, baseLh, minPt, strategy.join(','), boxKey, pxPerMm, fontsReady, s.font, s.weight, s.italic, s.letterSpacingPt, wrap, layer.type, library.signature])
 
   // Report the result (stack children are reported by their stack).
   useLayoutEffect(() => {
@@ -202,8 +246,13 @@ function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
   // What the stack needs to fit this layer (read from the DOM by StackView).
   // `look` is only there so that a font or style change makes the stack fit again.
   const policy = inStack && text
-    ? JSON.stringify({ basePt: startPt, baseLineHeight: baseLh, minPt, strategy, priority: layer.priority ?? 0, look: [layer.type, s.font, s.weight, s.italic, s.letterSpacingPt, s.wrap, s.align] })
+    ? JSON.stringify({ basePt: startPt, baseLineHeight: baseLh, minPt, strategy, priority: layer.priority ?? 0, look: [layer.type, s.font, s.weight, s.italic, s.letterSpacingPt, s.wrap, s.align, library.signature] })
     : undefined
+  const runView = (r: Run, j: number) => {
+    const sym = r.symbol ? library.symbols.get(r.symbol) : undefined
+    if (sym) return <SymbolView key={j} sym={sym} layerId={layer.id} />
+    return rich ? <span key={j} style={{ fontWeight: r.bold ? 700 : undefined, fontStyle: r.italic ? 'italic' : undefined }}>{r.text}</span> : <span key={j}>{r.text}</span>
+  }
   return (
     <div
       ref={containerRef}
@@ -221,15 +270,9 @@ function TextView({ layer, place }: { layer: TextLayer; place: Placement }) {
       }}
     >
       <div ref={innerRef} data-fit-inner="" style={innerStyle}>
-        {layer.type === 'richText'
-          ? parseRichText(text).map((runs, i) => (
-              <div key={i} style={{ minHeight: '1em' }}>
-                {runs.map((r, j) => (
-                  <span key={j} style={{ fontWeight: r.bold ? 700 : undefined, fontStyle: r.italic ? 'italic' : undefined }}>{r.text}</span>
-                ))}
-              </div>
-            ))
-          : text}
+        {rich
+          ? runs!.map((line, i) => <div key={i} style={{ minHeight: '1em' }}>{line.map(runView)}</div>)
+          : runs ? runs[0].map(runView) : text}
       </div>
     </div>
   )
@@ -351,10 +394,49 @@ function ShapeView({ layer, place }: { layer: ShapeLayer; place: Placement }) {
 }
 
 function IconRepeatView({ layer, place }: { layer: IconRepeatLayer; place: Placement }) {
-  const { pxPerMm } = useRender()
-  const { style: outer } = placementStyle(layer, place, pxPerMm)
-  // Symbols and icon repeaters arrive in Phase 4; until then the element shows where it sits.
-  return <div data-layer-id={layer.id} style={{ ...outer, outline: '1px dashed rgba(124,110,240,0.8)', opacity: layer.opacity }} />
+  const { pxPerMm, scope, library, warn, projectId, versions, measureOnly } = useRender()
+  const { style: outer, box } = placementStyle(layer, place, pxPerMm)
+  const ref = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState<{ w: number; h: number } | null>(box ? { w: box.w * pxPerMm, h: box.h * pxPerMm } : null)
+  useLayoutEffect(() => {
+    if (box) setSize({ w: box.w * pxPerMm, h: box.h * pxPerMm })
+    else if (ref.current) setSize({ w: ref.current.clientWidth, h: ref.current.clientHeight })
+  }, [box?.w, box?.h, pxPerMm]) // eslint-disable-line react-hooks/exhaustive-deps
+  const { n, code, errors } = useMemo(() => {
+    const errs: string[] = []
+    let count = 0
+    const r = evaluate(layer.count || '0', scope)
+    if (!r.ok) errs.push(`count: ${r.error}`)
+    else {
+      const c = repeatCount(toText(r.value))
+      if (c === null) errs.push(`count: "${toText(r.value)}" is not a number`)
+      else count = c
+    }
+    const ic = interpolate(layer.icon || '', scope)
+    errs.push(...ic.errors)
+    const name = ic.text.trim().replace(/^\{|\}$/g, '')
+    if (!name) errs.push('choose an icon: a symbol from the Library')
+    else if (!library.symbols.has(name)) errs.push(`no symbol {${name}}`)
+    return { n: count, code: name, errors: errs }
+  }, [layer.count, layer.icon, scope, library])
+  useEffect(() => { for (const e of errors) warn(layer.id, e) }, [errors, layer.id, warn])
+  const sym = library.symbols.get(code)
+  const dir = layer.direction || 'ltr'
+  const horizontal = dir === 'ltr' || dir === 'rtl'
+  let icons: ReactNode = null
+  if (sym && size && size.w > 0 && size.h > 0) {
+    const iw = horizontal ? size.h * sym.aspect : size.w
+    const ih = horizontal ? size.h : size.w / sym.aspect
+    const gap = (layer.gapMm ?? 0.5) * pxPerMm
+    const at = repeatPositions(n, horizontal ? size.w : size.h, horizontal ? iw : ih, gap, dir === 'rtl' || dir === 'btt')
+    icons = at.map((p, i) => {
+      const st: CSSProperties = { position: 'absolute', width: iw, height: ih, left: horizontal ? p : 0, top: horizontal ? 0 : p }
+      return measureOnly
+        ? <span key={i} style={st} />
+        : <img key={i} data-symbol={sym.code} src={assetUrl(projectId, sym.relPath, versions)} alt="" draggable={false} style={{ ...st, objectFit: 'contain' }} />
+    })
+  }
+  return <div ref={ref} data-layer-id={layer.id} data-count={n} style={{ ...outer, opacity: layer.opacity }}>{icons}</div>
 }
 
 function GroupView({ layer, place }: { layer: GroupLayer; place: Placement }) {
@@ -502,7 +584,9 @@ export function cardPixelSize(template: Template, pxPerMm: number, showBleed: bo
 }
 
 export default function CardRender({ template, card, projectId, pxPerMm, showBleed = false, assetVersions, onReady, measureOnly = false, onFits }: CardRenderProps) {
-  const scope = useMemo(() => cardScope(card), [card])
+  const library = useLibrary()
+  const scope = useMemo(() => cardScope(card, library.variables), [card, library])
+  const reminders = remindersOn(library, card)
   const [fontEpoch, setFontEpoch] = useState(0)
   const [imageEpoch, setImageEpoch] = useState(0)
   const fontsReady = useFontsReady(template, fontEpoch)
@@ -537,11 +621,11 @@ export default function CardRender({ template, card, projectId, pxPerMm, showBle
   const ctx = useMemo<Ctx>(() => {
     warningsRef.current = new Map()
     return {
-      projectId, pxPerMm, scope, versions: assetVersions, fontsReady, measureOnly, epoch,
+      projectId, pxPerMm, scope, versions: assetVersions, fontsReady, measureOnly, epoch, library, reminders,
       warn: (id, msg) => { warningsRef.current.set(`${id}: ${msg}`, `${id}: ${msg}`) },
       fitted, unfit, imagePending,
     }
-  }, [projectId, pxPerMm, scope, assetVersions, fontsReady, template, measureOnly, epoch, fitted, unfit, imagePending])
+  }, [projectId, pxPerMm, scope, assetVersions, fontsReady, template, measureOnly, epoch, library, reminders, fitted, unfit, imagePending])
 
   // Measure-only: report once layout has settled, and again when a result, the template or the
   // card changes (a parent re-rendering for another reason must not report again: a listener that

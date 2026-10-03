@@ -3,6 +3,7 @@
 // names like "constructor" or "__proto__" are just missing fields.
 
 import type { Scope, Value } from './expr.ts'
+import { expandVariables } from '../library/variables.ts'
 
 export const CARD_COLUMNS = [
   'id', 'name', 'type', 'set_name', 'rarity', 'cost', 'power', 'toughness',
@@ -29,19 +30,29 @@ function parseCustom(raw: unknown): Record<string, unknown> {
   }
 }
 
-export function cardScope(card: Record<string, unknown> | null | undefined): Scope {
+// variables (the project library's, UPPER_CASE): readable as identifiers ({{HAND_SIZE}}), and
+// {{HAND_SIZE}} written inside a card's text is replaced by its value (once; no nesting).
+export function cardScope(card: Record<string, unknown> | null | undefined, variables?: Record<string, string>): Scope {
   const scope: Scope = Object.create(null)
-  if (!card) return scope
-  const custom = parseCustom(card.custom_fields)
-  for (const key of Object.keys(custom)) {
-    if (!IDENT.test(key)) continue
-    const v = scalar(custom[key])
-    if (v !== undefined) scope[key] = v
+  if (card) {
+    const custom = parseCustom(card.custom_fields)
+    for (const key of Object.keys(custom)) {
+      if (!IDENT.test(key)) continue
+      const v = scalar(custom[key])
+      if (v !== undefined) scope[key] = v
+    }
+    for (const col of CARD_COLUMNS) {
+      const v = scalar(card[col])
+      if (v !== undefined && v !== null) scope[col] = v
+      else if (!(col in scope)) scope[col] = null
+    }
   }
-  for (const col of CARD_COLUMNS) {
-    const v = scalar(card[col])
-    if (v !== undefined && v !== null) scope[col] = v
-    else if (!(col in scope)) scope[col] = null
+  if (variables) {
+    for (const key of Object.keys(scope)) {
+      const v = scope[key]
+      if (typeof v === 'string' && v.includes('{{')) scope[key] = expandVariables(v, variables).text
+    }
+    for (const key of Object.keys(variables)) if (!(key in scope)) scope[key] = variables[key]
   }
   return scope
 }

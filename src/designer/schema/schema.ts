@@ -66,7 +66,7 @@ const fit = z
   })
   .strict()
 
-const textLayer = z.object({ ...base, type: z.enum(['text', 'richText']), text: z.string().max(20000), style: style.optional(), fit: fit.optional() }).strict()
+const textLayer = z.object({ ...base, type: z.enum(['text', 'richText']), text: z.string().max(20000), style: style.optional(), fit: fit.optional(), keywords: z.boolean().optional() }).strict()
 const imageLayer = z
   .object({
     ...base,
@@ -90,7 +90,10 @@ const shapeLayer = z
   })
   .strict()
 const iconRepeatLayer = z
-  .object({ ...base, type: z.literal('iconRepeat'), count: expression, icon: z.string().max(100), direction: z.enum(['ltr', 'rtl', 'ttb', 'btt']).optional() })
+  .object({
+    ...base, type: z.literal('iconRepeat'), count: expression, icon: z.string().max(200),
+    direction: z.enum(['ltr', 'rtl', 'ttb', 'btt']).optional(), gapMm: z.number().min(0).max(100).optional(),
+  })
   .strict()
 
 // Recursive containers: zod 4 getters keep the type lazy.
