@@ -4,6 +4,7 @@ const { DB_FILE } = require('./legacyData');
 const { runMigrations } = require('./migrations');
 const cardModelLib = require('./cardModel');
 const { createCardModel, registerCardModelIpc } = cardModelLib;
+const { createFitCache, registerFitCacheIpc } = require('./fitCache');
 
 let db;
 let dbPath;
@@ -332,6 +333,7 @@ const CARD_COLUMNS = ['name', 'type', 'set_name', 'rarity', 'cost', 'power', 'to
   'rules_text', 'flavor_text', 'tags', 'custom_fields', 'notes', 'image_path', 'template_override_id', 'card_type_id'];
 
 const cardModel = createCardModel({ queryAll, queryOne, exec, inTransaction });
+const fitCache = createFitCache({ queryAll, exec, inTransaction });
 
 // SET clause for a (normalised) partial card of projectId, validating references.
 function cardUpdateSql(projectId, data) {
@@ -436,6 +438,7 @@ function registerIpcHandlers(ipcMain) {
     const docs = queryAll('SELECT id FROM documents WHERE project_id = ?', [id]);
     for (const d of docs) run('DELETE FROM documents WHERE id = ?', [d.id]);
     inTransaction(() => {
+      db.run('DELETE FROM fit_cache WHERE project_id = ?', [id]);
       db.run('DELETE FROM template_rules WHERE project_id = ?', [id]);
       db.run('DELETE FROM assets WHERE project_id = ?', [id]);
       db.run('DELETE FROM card_types WHERE project_id = ?', [id]);
@@ -480,12 +483,24 @@ function registerIpcHandlers(ipcMain) {
   // ── CARD TYPES & FIELDS ───────────────────────────────────
   registerCardModelIpc(ipcMain, cardModel);
 
+  // ── FIT CACHE ─────────────────────────────────────────────
+  registerFitCacheIpc(ipcMain, fitCache);
+
+  // sql.js runs without foreign_keys: a card's fit results go with it.
   ipcMain.handle('deleteCard', (_, id) => {
-    run('DELETE FROM cards WHERE id = ?', [id]);
+    inTransaction(() => {
+      db.run('DELETE FROM fit_cache WHERE card_id = ?', [id]);
+      db.run('DELETE FROM cards WHERE id = ?', [id]);
+    });
   });
 
   ipcMain.handle('bulkDeleteCards', (_, ids) => {
-    for (const id of ids) run('DELETE FROM cards WHERE id = ?', [id]);
+    inTransaction(() => {
+      for (const id of ids) {
+        db.run('DELETE FROM fit_cache WHERE card_id = ?', [id]);
+        db.run('DELETE FROM cards WHERE id = ?', [id]);
+      }
+    });
   });
 
   ipcMain.handle('duplicateCard', (_, id) => {
@@ -640,7 +655,7 @@ function registerIpcHandlers(ipcMain) {
 
 module.exports = {
   initDatabase, registerIpcHandlers, queryCards, getCard, getProject, queryAll, queryOne, exec, bulkUpdateCards, createCardRow,
-  getCardModelApi: () => cardModel, tagList, normalizeCardData,
+  getCardModelApi: () => cardModel, getFitCacheApi: () => fitCache, tagList, normalizeCardData,
   listTemplates, getTemplate, insertTemplate, updateTemplate, deleteTemplate,
   listTemplateRules, saveTemplateRules, listAssets, applyAssetChanges, inTransaction, importCards,
 };

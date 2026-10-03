@@ -51,6 +51,11 @@ contextBridge.exposeInMainWorld('api', {
   getAssets: (projectId, kind) => ipcRenderer.invoke('getAssets', projectId, kind),
   getMissingArt: (projectId) => ipcRenderer.invoke('getMissingArt', projectId),
 
+  // Fit cache (results of the background fit check)
+  getFitCache: (projectId) => ipcRenderer.invoke('getFitCache', projectId),
+  saveFitResults: (projectId, rows) => ipcRenderer.invoke('saveFitResults', projectId, rows),
+  clearFitCache: (projectId) => ipcRenderer.invoke('clearFitCache', projectId),
+
   // Card import (CSV / XLSX)
   // Path of a File from an <input type="file"> or a drop (File.path is gone in Electron 32+).
   pathForFile: (file) => webUtils.getPathForFile(file),

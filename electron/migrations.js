@@ -179,6 +179,26 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    version: 6,
+    name: 'fit cache',
+    // Spec data model: fit_cache holds each card's fit results (electron/fitCache.js). Computed
+    // data only; nothing existing changes.
+    up(db) {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS fit_cache (
+          card_id           INTEGER PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+          project_id        INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          template_id       INTEGER,
+          template_version  INTEGER,
+          data_hash         TEXT NOT NULL,
+          results_json      TEXT NOT NULL DEFAULT '{}',
+          computed_at       TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_fit_cache_project ON fit_cache(project_id);
+      `);
+    },
+  },
 ];
 
 const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
