@@ -42,7 +42,6 @@ function KeywordEditor({ projectId, rows, initial, onDone }) {
   const cards = useStore((s) => s.cards)
   const documents = useStore((s) => s.documents)
   const ruleEntries = documents.filter((d) => d.type === 'rule')
-  useEffect(() => { setDraft(initial); setValues(initial.params.map(example)); setError(null) }, [initial])
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
   const setParam = (i, patch) => set({ params: draft.params.map((p, j) => (j === i ? { ...p, ...patch } : p)) })
   const addParam = () => {
@@ -199,7 +198,8 @@ export default function KeywordsTab() {
   }, [focus])
   const counts = useMemo(() => new Map(rows.keywords.map((k) => [k.id, keywordWhereUsed({ cards, documents: [] }, k.name).cards.length])), [rows, cards])
   const editing = selected === 'new' ? blank() : rows.keywords.find((k) => k.id === selected) || null
-  const initial = useMemo(() => editing && { ...editing, params: editing.params.map((p) => ({ ...p })) }, [selected, rows]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Fixed while an item is open, so a library reload doesn't reset what is being edited.
+  const initial = useMemo(() => editing && { ...editing, params: editing.params.map((p) => ({ ...p })) }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
   const done = (name) => {
     if (name === undefined) { setSelected(null); return }
     const k = useStore.getState().library.keywords.find((x) => x.name.toLowerCase() === String(name).toLowerCase())
@@ -228,7 +228,7 @@ export default function KeywordsTab() {
         {initial ? (
           <div className="max-w-xl">
             <h3 className="mb-4 text-sm font-semibold text-text-primary">{selected === 'new' ? 'New keyword' : shownName(initial)}</h3>
-            <KeywordEditor projectId={projectId} rows={rows} initial={initial} onDone={done} />
+            <KeywordEditor key={selected} projectId={projectId} rows={rows} initial={initial} onDone={done} />
           </div>
         ) : (
           <p className="max-w-lg text-sm text-text-muted">

@@ -11,7 +11,39 @@ import TableCell from '@tiptap/extension-table-cell';
 import TableHeader from '@tiptap/extension-table-header';
 import { useStore } from '../../store';
 import RulesToolbar from './RulesToolbar';
-import { Clock, FileText } from 'lucide-react';
+import { Clock, FileText, Tag } from 'lucide-react';
+
+// The keywords (Library) that link to this rule entry, as chips that open them in the Library.
+function LinkedKeywords({ docId }) {
+  const keywords = useStore((s) => s.library?.keywords);
+  const openLibrary = useStore((s) => s.openLibrary);
+  const linked = (keywords || []).filter((k) => k.rule_ref === docId);
+  return (
+    <div className="flex items-center gap-2" data-testid="rule-keywords">
+      <label className="text-xs font-semibold text-text-secondary w-20">Keywords:</label>
+      <div className="flex-1 flex flex-wrap items-center gap-1">
+        {linked.map((k) => (
+          <button
+            key={k.id}
+            data-keyword-chip={k.name}
+            title="Open this keyword in the Library"
+            onClick={() => openLibrary('keywords', { kind: 'keyword', id: k.id })}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/15 text-accent text-xs hover:bg-accent/25"
+          >
+            <Tag size={11} />
+            {k.name}{(k.params || []).map((p) => ` ${p.name}`).join('')}
+          </button>
+        ))}
+        {!linked.length && (
+          <span className="text-xs text-text-muted">
+            None yet.{' '}
+            <button className="text-accent hover:underline" onClick={() => openLibrary('keywords')}>Link one in the Library</button>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function RulesEditor() {
   const {
@@ -179,6 +211,8 @@ export default function RulesEditor() {
               className="flex-1 text-sm px-2 py-1 rounded bg-surface-2 text-text-primary border border-border cursor-not-allowed"
             />
           </div>
+
+          <LinkedKeywords docId={activeDoc.id} />
 
           {/* Category */}
           <div className="flex items-center gap-2">

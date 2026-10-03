@@ -56,3 +56,12 @@ test('Yes/No values stay booleans; cell keys map model keys to storage', () => {
   assert.equal(cellKey('atk'), 'custom:atk')
   assert.equal(cellKey('card_type_id'), 'card_type_id')
 })
+
+test('reminder text per card: "" is the default, "1" show, "0" hide; undo restores the same value', () => {
+  const card = { id: 1, name: 'Ember Bolt', reminders: null }
+  assert.deepEqual(withField(card, 'reminders', '0').patch, { reminders: 0 })
+  assert.deepEqual(withField(card, 'reminders', '1').patch, { reminders: 1 })
+  assert.deepEqual(withField({ ...card, reminders: 0 }, 'reminders', '').patch, { reminders: null })
+  assert.equal(getFieldRaw({ ...card, reminders: 0 }, 'reminders'), '0', 'history keeps "0", which writes back as hide')
+  assert.equal(getFieldRaw(card, 'reminders'), '')
+})

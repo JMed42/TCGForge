@@ -7,6 +7,8 @@ import { markEdit } from './grid/liveTiming'
 import { fieldMap, fieldsForType, isNumeric, KIND_LABELS, NAME_FIELD, STANDARD_KEYS } from '../../cardModel/model'
 import { FitLine } from '../Fit/FitStatus'
 import { useFieldFits } from '../Fit/useFit'
+import { useLibrary } from '../../designer/library/LibraryContext.ts'
+import { remindersOn } from '../../designer/library/library.ts'
 
 const SAVE_DELAY_MS = 500
 const inputClass = 'w-full px-3 py-2 bg-surface-2 border border-border rounded text-text-primary placeholder-text-muted focus:outline-none focus:border-accent'
@@ -172,6 +174,33 @@ function OtherValues({ card, typeFields }) {
   )
 }
 
+// Keyword reminder text for this card (Phase 4): the project/set default, or always show / hide.
+// Only shown when the project has keywords; "Default" says what the default gives this card.
+function ReminderChoice({ card }) {
+  const library = useLibrary()
+  if (!library.keywords.length) return null
+  const fallback = remindersOn(library, { ...card, reminders: null })
+  const set = String(card.set_name || '')
+  const why = set && Object.prototype.hasOwnProperty.call(library.reminders.sets, set) ? `set ${set}` : 'project'
+  const value = card.reminders === null || card.reminders === undefined ? '' : String(card.reminders ? 1 : 0)
+  return (
+    <label className="flex items-center gap-2 text-sm text-text-primary" data-testid="reminder-choice">
+      <span className="font-medium">Reminder text</span>
+      <select
+        data-testid="card-reminders"
+        className="px-2 py-1 bg-surface-2 border border-border rounded text-sm text-text-primary"
+        value={value}
+        onChange={(e) => useStore.getState().commitCell(card.id, 'reminders', e.target.value)}
+      >
+        <option value="">Default ({fallback ? 'shown' : 'hidden'}, {why})</option>
+        <option value="1">Show</option>
+        <option value="0">Hide</option>
+      </select>
+      <span className="text-xs text-text-muted">for keywords in this card's text</span>
+    </label>
+  )
+}
+
 /** The selected card as a form with its type's fields. */
 export default function CardForm({ focusName }) {
   const card = useStore((s) => s.cards.find((c) => c.id === s.activeCardId) || null)
@@ -223,6 +252,7 @@ export default function CardForm({ focusName }) {
       <div className="flex-1 overflow-auto px-5 py-4">
         <div className="max-w-xl space-y-4">
           {typeFields.map((f, i) => <FieldInput key={`${card.id}:${f.key}`} card={card} field={f} autoFocus={focusName === card.id && i === 0} fits={fieldFits.get(f.key)} />)}
+          <ReminderChoice card={card} />
           <OtherValues card={card} typeFields={typeFields} />
         </div>
       </div>

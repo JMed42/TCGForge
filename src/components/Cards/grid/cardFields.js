@@ -63,6 +63,11 @@ export function withField(card, key, value) {
     const id = Number(v)
     return { card: { ...card, card_type_id: id }, patch: { card_type_id: id } }
   }
+  // Keyword reminder text for this card: '' = the project/set default, '1' = show, '0' = hide.
+  if (key === 'reminders') {
+    const r = v === '' ? null : Number(v) ? 1 : 0
+    return { card: { ...card, reminders: r }, patch: { reminders: r } }
+  }
   return { card: { ...card, [key]: v }, patch: { [key]: v } }
 }
 

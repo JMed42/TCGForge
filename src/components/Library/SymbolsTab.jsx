@@ -53,7 +53,6 @@ function SymbolEditor({ projectId, rows, initial, onDone }) {
   const documents = useStore((s) => s.documents)
   const templates = useParsedTemplates()
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }))
-  useEffect(() => { setDraft(initial); setError(null); setNote(null) }, [initial])
   useEffect(() => {
     window.api.getAssets(projectId, 'icon').then((rowsOut) => setIcons(rowsOut || [])).catch(() => setIcons([]))
   }, [projectId])
@@ -163,7 +162,9 @@ export default function SymbolsTab() {
   const [selected, setSelected] = useState(null) // symbol id, or 'new'
   const counts = useMemo(() => new Map(rows.symbols.map((s) => [s.shortcode, cardUses(cards, symbolMatcher(s.shortcode)).length])), [rows, cards])
   const editing = selected === 'new' ? blank() : rows.symbols.find((s) => s.id === selected) || null
-  const initial = useMemo(() => editing && { ...editing }, [selected, rows]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Fixed while an item is open: the library reloads when a file lands in assets/icons (e.g. a
+  // pasted image), and that must not reset what is being edited.
+  const initial = useMemo(() => editing && { ...editing }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
   const done = (code) => {
     if (code === undefined) { setSelected(null); return }
     const s = useStore.getState().library.symbols.find((x) => x.shortcode === code)
@@ -199,7 +200,7 @@ export default function SymbolsTab() {
       {initial && (
         <aside className="w-[420px] flex-shrink-0 border-l border-border bg-surface-1 overflow-auto p-5">
           <h3 className="mb-4 text-sm font-semibold text-text-primary">{selected === 'new' ? 'New symbol' : `{${initial.shortcode}}`}</h3>
-          <SymbolEditor projectId={projectId} rows={rows} initial={initial} onDone={done} />
+          <SymbolEditor key={selected} projectId={projectId} rows={rows} initial={initial} onDone={done} />
         </aside>
       )}
     </div>

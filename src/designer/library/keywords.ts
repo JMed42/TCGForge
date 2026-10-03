@@ -84,6 +84,8 @@ export function applyKeywords(text: string, keywords: CompiledKeyword[], scope: 
       else if (text[at] === '*' || /[.,;:!?]/.test(text[at])) at += 1
       else break
     }
+    // Reminder text already written on the card ("*Guard* (Units must attack this first.)") stays as it is.
+    if (/^\s*\*?\(/.test(text.slice(at))) continue
     const body = reminder.startsWith('(') ? reminder : `(${reminder})`
     inserts.push({ at, text: markup ? ` *${escapeMarkup(body)}*` : ` ${body}` })
   }

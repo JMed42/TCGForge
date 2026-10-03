@@ -133,7 +133,7 @@ export default function DocumentTree() {
           <button
             onClick={handleNewRule}
             className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-surface-3 hover:bg-surface-4 text-accent text-xs rounded transition-colors"
-            title="New rule entry: one numbered rule of your game (keywords will link to these in Phase 4)"
+            title="New rule entry: one numbered rule of your game. Keywords in the Library can link to it."
           >
             <BookMarked size={14} />
             <span>Rule</span>

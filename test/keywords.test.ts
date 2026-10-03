@@ -24,6 +24,13 @@ test('after the punctuation and bold it closes; first occurrence only', () => {
   assert.equal(run('**Guard.** Other units guard too.'), '**Guard.** *(Units must attack this first.)* Other units guard too.')
 })
 
+test('reminder text already written on the card is not added again', () => {
+  assert.equal(run('*Guard* (Units must attack this first.) Draw.'), '*Guard* (Units must attack this first.) Draw.')
+  assert.equal(run('Guard *(Old wording.)*'), 'Guard *(Old wording.)*')
+  assert.equal(run('Burn 2 (two damage). Guard.'), 'Burn 2 (two damage). Guard. *(Units must attack this first.)*')
+  assert.deepEqual(applyKeywords('*Guard* (Units must attack this first.)', keywords, cardScope({})).found, ['Guard'], 'still found, for where-used')
+})
+
 test('parameters, and conditional reminder text', () => {
   assert.equal(run('Burn 1.'), 'Burn 1. *(Deal 1 damage.)*')
   assert.equal(run('Burn 3 and draw.'), 'Burn 3 *(Deal 3 damage split as you choose.)* and draw.')
