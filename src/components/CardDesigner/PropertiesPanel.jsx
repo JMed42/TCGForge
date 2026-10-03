@@ -265,9 +265,15 @@ export default function PropertiesPanel() {
 
       {layer.type === 'stack' && (
         <Section title="Stack">
+          <div className="col-span-2 rounded bg-sky-500/10 border border-sky-500/30 px-2 py-1.5 text-[11px] leading-snug text-text-secondary" data-testid="stack-help">
+            A stack places the layers inside it one after another, top to bottom (or left to right).
+            Each one takes the height its text needs, so when a card's text is longer, everything
+            below it moves down instead of overlapping. Typical use: card text with a flavor line
+            under it. Add layers into the stack by selecting it and using <strong>Add</strong> in the Layers panel, or drag
+            them onto it; their order in the list is their order on the card.
+          </div>
           <SelectField label="Direction" value={layer.direction || 'vertical'} options={['vertical', 'horizontal']} onChange={(v) => set('direction', v)} />
           <NumberField label="Gap (mm)" value={layer.gapMm ?? 0} min={0} step={0.5} onChange={(v) => set('gapMm', v)} />
-          <p className="col-span-2 text-[10px] text-text-muted">Children flow in order; text grows and pushes the next child along.</p>
         </Section>
       )}
 

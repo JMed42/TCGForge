@@ -9,7 +9,7 @@ import { useStore } from '../../store'
 import CardRender, { cardPixelSize } from '../../designer/render/CardRender.tsx'
 import { useProjectFonts } from '../../designer/render/useProjectFonts.ts'
 import { isContainer } from '../../designer/schema/types.ts'
-import { absoluteBox, findRef } from '../../designer/layout/tree.ts'
+import { absoluteBox, findRef, walk } from '../../designer/layout/tree.ts'
 import {
   HANDLES, alignBoxes, bounds, contains, distributeBoxes, intersects, moveBox, rectFromPoints, resizeBox, roundBox, scaleInto, snapBox, snapTargets,
 } from '../../designer/editor/geometry.ts'
@@ -59,7 +59,7 @@ export default function DesignerCanvas() {
   const spaceRef = useRef(false)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 40, y: 40 })
-  const [show, setShow] = useState({ bleed: true, safe: true, grid: false })
+  const [show, setShow] = useState({ bleed: true, safe: true, grid: false, boxes: true })
   const [entered, setEntered] = useState(null) // container id whose children are being edited
   const [hoverId, setHoverId] = useState(null)
   const [marquee, setMarquee] = useState(null)
@@ -295,6 +295,21 @@ export default function DesignerCanvas() {
 
   // ---------------------------------------------------------------- commands
 
+  // Editor-only outlines for stacks and groups: they have no look of their own, so without this
+  // an empty stack is invisible.
+  const containerBoxes = useMemo(() => {
+    if (!draft) return []
+    const out = []
+    walk(draft.layers, (r) => {
+      const l = r.layer
+      if (!isContainer(l) || l.hidden || !isRendered(l.id)) return
+      const box = boxOf(l.id)
+      if (box) out.push({ id: l.id, type: l.type, empty: l.children.length === 0, box })
+    })
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, boxOf, isRendered, report])
+
   const selectionBoxes = useMemo(() => {
     if (!draft) return []
     return selectedIds.map((id) => ({ id, box: boxOf(id) })).filter((s) => s.box)
@@ -415,7 +430,7 @@ export default function DesignerCanvas() {
         <ToolButton title="Zoom in (Ctrl+=)" onClick={() => zoomAt(zoom * 1.25)}><ZoomIn size={15} /></ToolButton>
         <ToolButton title="Fit (Ctrl+0)" onClick={fit} testid="zoom-fit"><Maximize size={15} /></ToolButton>
         <div className="w-px h-5 bg-border mx-1" />
-        {[['bleed', 'Bleed'], ['safe', 'Safe'], ['grid', 'Grid']].map(([k, label]) => (
+        {[['bleed', 'Bleed'], ['safe', 'Safe'], ['grid', 'Grid'], ['boxes', 'Stacks']].map(([k, label]) => (
           <button
             key={k}
             type="button"
@@ -508,6 +523,13 @@ export default function DesignerCanvas() {
 
             {/* Selection and interaction overlay */}
             <div className="absolute inset-0 pointer-events-none">
+              {show.boxes && containerBoxes.map(({ id, type, empty, box }) => (
+                <div key={`c-${id}`} data-container-outline={id} className="absolute border border-dashed border-sky-300/60" style={toPx(box)}>
+                  <span className="absolute left-0 -top-3.5 px-1 rounded-sm bg-sky-600/80 text-[9px] leading-[14px] text-white whitespace-nowrap">
+                    {type === 'stack' ? 'Stack' : 'Group'}{empty ? ' (empty: add layers inside it)' : ''}
+                  </span>
+                </div>
+              ))}
               {enteredBox && <div className="absolute border border-dashed border-accent/60" style={toPx(enteredBox)} />}
               {hovered && <div className="absolute border border-accent/60" style={toPx(hovered)} />}
               {selectionBoxes.map(({ id, box }) => {

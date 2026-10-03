@@ -110,7 +110,7 @@ const DEFAULTS: Record<LayerKind, { layer: Omit<Layer, 'id'>; w: number; h: numb
   },
   richText: {
     base: 'rules', w: 45, h: 20,
-    layer: { type: 'richText', text: 'Rules text with **bold** and *italic*.', style: { font: 'Georgia', sizePt: 8, color: '#1a1a2e' }, fit: { strategy: ['shrink', 'tightenLeading'], minPt: 6 } } as Omit<Layer, 'id'>,
+    layer: { type: 'richText', text: 'Card text with **bold** and *italic*.', style: { font: 'Georgia', sizePt: 8, color: '#ffffff' }, fit: { strategy: ['shrink', 'tightenLeading'], minPt: 6 } } as Omit<Layer, 'id'>,
   },
   image: { base: 'image', w: 40, h: 30, layer: { type: 'image', src: '{{image_path}}', objectFit: 'cover', placeholder: 'proxy' } as Omit<Layer, 'id'> },
   rect: { base: 'shape', w: 30, h: 15, layer: { type: 'shape', shape: 'rect', fill: '#7c6ef0' } as Omit<Layer, 'id'> },
@@ -120,11 +120,30 @@ const DEFAULTS: Record<LayerKind, { layer: Omit<Layer, 'id'>; w: number; h: numb
   group: { base: 'group', w: 30, h: 20, layer: { type: 'group', children: [] } as unknown as Omit<Layer, 'id'> },
 }
 
+// A new stack starts with two flowing text blocks, so it's visible and shows what it does: the
+// first grows with its text and pushes the second down.
+const STACK_STARTER: Array<{ kind: LayerKind; text: string; italic?: boolean }> = [
+  { kind: 'richText', text: 'Card text goes here. When this text gets longer, the line below moves down.' },
+  { kind: 'text', text: 'Second block (moves down)', italic: true },
+]
+
 /**
  * Add a layer on top of `parentId` (null = card). Frame-positioned layers are centred in their
  * parent; stack children flow. Returns the new id.
  */
 export function addLayer(t: Template, kind: LayerKind, parentId: string | null = null): { template: Template; id: string } {
+  const added = addOne(t, kind, parentId)
+  if (kind !== 'stack') return added
+  let out = added.template
+  for (const s of STACK_STARTER) {
+    const child = addOne(out, s.kind, added.id)
+    const layer = getLayer(child.template, child.id) as Layer & { style?: Record<string, unknown> }
+    out = updateLayer(child.template, child.id, { text: s.text, style: { ...layer.style, ...(s.italic ? { italic: true } : {}), valign: 'top' } } as Partial<Layer>)
+  }
+  return { template: out, id: added.id }
+}
+
+function addOne(t: Template, kind: LayerKind, parentId: string | null): { template: Template; id: string } {
   const d = DEFAULTS[kind]
   const id = uniqueId(t, d.base)
   const parent = parentId === null ? null : containerOf(t, parentId)

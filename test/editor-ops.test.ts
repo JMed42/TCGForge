@@ -56,6 +56,17 @@ test('add: centred on the card, or flowing inside a stack', () => {
   assert.equal(addLayer(a.template, 'rect').id, 'shape-2')
 })
 
+test('a new stack starts with two flowing text blocks; rich text defaults to white', () => {
+  const s = addLayer(tpl(), 'stack')
+  const stack = getLayer(s.template, s.id) as any
+  assert.equal(stack.type, 'stack')
+  assert.deepEqual(stack.children.map((c: any) => [c.type, c.frame]), [['richText', undefined], ['text', undefined]])
+  assert.match(stack.children[0].text, /line below moves down/)
+  assert.equal(stack.children[1].style.italic, true)
+  const r = addLayer(tpl(), 'richText')
+  assert.equal((getLayer(r.template, r.id) as any).style.color, '#ffffff')
+})
+
 test('duplicate sits above the original, offset 2 mm, with fresh ids for nested children', () => {
   const d = duplicateLayers(tpl(), ['cost', 'box'])
   assert.deepEqual(d.ids, ['cost-copy', 'box-copy'])

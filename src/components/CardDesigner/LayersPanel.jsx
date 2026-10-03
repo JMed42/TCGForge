@@ -17,7 +17,7 @@ const ADD_KINDS = [
   ['rect', 'Rectangle', Square],
   ['roundRect', 'Rounded rectangle', RectangleHorizontal],
   ['ellipse', 'Ellipse', Circle],
-  ['stack', 'Stack (auto-layout)', Rows3],
+  ['stack', 'Stack: text blocks that push each other down', Rows3],
   ['group', 'Group', Group],
 ]
 
