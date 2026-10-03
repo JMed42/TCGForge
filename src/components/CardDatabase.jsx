@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus, PanelRightOpen, FileSpreadsheet } from 'lucide-react';
 import { useStore } from '../store';
 import TopBar from './Layout/TopBar';
-import { CardTable, CardFilters, CardEditor, CardBulkActions } from './Cards';
+import { CardTable, CardFilters, CardBulkActions } from './Cards';
 import CardPreviewPane from './Cards/CardPreviewPane';
+import CardList from './Cards/CardList';
+import CardForm from './Cards/CardForm';
 import TemplateAssignmentDialog from './Cards/TemplateAssignmentDialog';
 import ImportDialog from './Cards/ImportDialog';
 import MissingArtBanner from './Cards/MissingArtBanner';
@@ -18,19 +20,28 @@ function loadPane() {
   return { open: true, width: 380 };
 }
 
-// Cards screen (spec: table left, live render of the selected card right).
+const TABS = [
+  ['cards', 'Cards', 'Write one card at a time in a form'],
+  ['database', 'Database', 'All cards in a grid, for batch edits'],
+];
+
+// Cards screen, two tabs over the same cards and the same live preview:
+//   Cards: a list, the selected card's form (its type's fields), auto-saved.
+//   Database: the spreadsheet grid for batch edits, filters, import and missing art.
 export default function CardDatabase() {
   const cardCount = useStore((s) => s.cards.length);
-  const editingCard = useStore((s) => s.editingCard);
   const selectedCount = useStore((s) => s.selectedCardIds.length);
   const activeProjectId = useStore((s) => s.activeProjectId);
+  const tab = useStore((s) => s.cardsTab);
   const [pane, setPane] = useState(loadPane);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [focusName, setFocusName] = useState(null); // id of a just-created card: focus its name
   const drag = useRef(null);
 
   useEffect(() => {
     const s = useStore.getState();
+    s.loadCardModel();
     s.loadTemplates();
     s.loadTemplateRules();
     s.loadMissingArt();
@@ -57,17 +68,40 @@ export default function CardDatabase() {
     window.addEventListener('pointerup', onUp);
   };
 
+  const newCardInDatabase = async () => {
+    const s = useStore.getState();
+    const typeId = s.cardFilters.cardTypeId ? Number(s.cardFilters.cardTypeId) : s.cardModel.types[0]?.id;
+    await s.createCardOfType(typeId);
+  };
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
       <TopBar title={`Cards (${cardCount})`}>
-        <button
-          data-testid="open-import"
-          onClick={() => setImportOpen(true)}
-          className="flex items-center gap-2 px-3 py-1.5 bg-surface-2 hover:bg-surface-3 rounded-lg transition-all text-text-secondary text-sm font-medium"
-        >
-          <FileSpreadsheet size={16} />
-          Import…
-        </button>
+        <div className="flex rounded-lg bg-surface-2 p-0.5 mr-2" role="tablist">
+          {TABS.map(([id, label, title]) => (
+            <button
+              key={id}
+              role="tab"
+              data-testid={`tab-${id}`}
+              title={title}
+              aria-selected={tab === id}
+              onClick={() => useStore.getState().setCardsTab(id)}
+              className={`px-3 py-1 rounded-md text-sm ${tab === id ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {tab === 'database' && (
+          <button
+            data-testid="open-import"
+            onClick={() => setImportOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-surface-2 hover:bg-surface-3 rounded-lg transition-all text-text-secondary text-sm font-medium"
+          >
+            <FileSpreadsheet size={16} />
+            Import…
+          </button>
+        )}
         {!pane.open && (
           <button
             onClick={() => setPane((p) => ({ ...p, open: true }))}
@@ -77,22 +111,36 @@ export default function CardDatabase() {
             <PanelRightOpen size={16} /> Preview
           </button>
         )}
-        <button
-          onClick={() => useStore.getState().setEditingCard({})}
-          className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:brightness-110 rounded-lg transition-all text-white text-sm font-medium"
-        >
-          <Plus size={16} />
-          New Card
-        </button>
+        {tab === 'database' && (
+          <button
+            onClick={newCardInDatabase}
+            data-testid="new-card-db"
+            className="flex items-center gap-2 px-3 py-1.5 bg-accent hover:brightness-110 rounded-lg transition-all text-white text-sm font-medium"
+          >
+            <Plus size={16} />
+            New Card
+          </button>
+        )}
       </TopBar>
 
-      <CardFilters />
-      <MissingArtBanner />
+      {tab === 'database' && (
+        <>
+          <CardFilters />
+          <MissingArtBanner />
+        </>
+      )}
 
       <div className="flex-1 flex min-h-0">
-        <div className="flex-1 min-w-0 flex flex-col">
-          <CardTable />
-        </div>
+        {tab === 'cards' ? (
+          <>
+            <CardList onCreated={(id) => setFocusName(id)} />
+            <CardForm focusName={focusName} />
+          </>
+        ) : (
+          <div className="flex-1 min-w-0 flex flex-col">
+            <CardTable />
+          </div>
+        )}
         {pane.open && (
           <>
             <div onPointerDown={onResizeStart} className="w-1 cursor-col-resize bg-border hover:bg-accent/60" title="Drag to resize" />
@@ -103,8 +151,7 @@ export default function CardDatabase() {
         )}
       </div>
 
-      {selectedCount > 0 && <CardBulkActions />}
-      {editingCard !== null && <CardEditor />}
+      {tab === 'database' && selectedCount > 0 && <CardBulkActions />}
       {rulesOpen && <TemplateAssignmentDialog onClose={() => setRulesOpen(false)} />}
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
     </div>

@@ -3,7 +3,7 @@
 // round-trip), cell undo/redo, and the project's template rules.
 
 import { toUiCard } from './utils/cardData'
-import { getFieldValue, withField, createCellHistory, recordCellEdit, undoCell, redoCell } from './components/Cards/grid/cardFields'
+import { getFieldRaw, sameValue, withField, createCellHistory, recordCellEdit, undoCell, redoCell } from './components/Cards/grid/cardFields'
 
 export const cardsInitialState = {
   activeCardId: null,
@@ -13,6 +13,8 @@ export const cardsInitialState = {
   templateRules: [], // rows: { id, priority, condition_expr, template_id }
   missingArt: null, // { cardIds, cards: [{ id, name, image_path }], templates: [{ id, name, src }] }
   missingArtOnly: false,
+  cardsTab: 'cards', // 'cards' (one card in a form) | 'database' (the grid)
+  savingCount: 0, // saves in flight, for the "Saving…" indicator
 }
 
 const ipcMessage = (error) => String(error?.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -20,27 +22,43 @@ const ipcMessage = (error) => String(error?.message || error).replace(/^Error in
 export function createCardsSlice(set, get) {
   const replaceCard = (card) => set((s) => ({ cards: s.cards.map((c) => (c.id === card.id ? card : c)) }))
 
-  // Write one field. Optimistic: the row changes at once, then takes the saved row.
-  const writeField = async (cardId, key, value) => {
-    const card = get().cards.find((c) => c.id === cardId)
-    if (!card) return false
-    let next
+  // Write fields: [{ cardId, key, value }]. Optimistic: rows change at once, then take the saved
+  // rows. One card goes through updateCard; several through bulkUpdateCards (one transaction).
+  const writeChanges = async (writes) => {
+    const before = new Map()
+    const after = new Map()
+    const patches = new Map()
     try {
-      next = withField(card, key, value)
+      for (const w of writes) {
+        const card = after.get(w.cardId) || get().cards.find((c) => c.id === w.cardId)
+        if (!card) continue
+        if (!before.has(w.cardId)) before.set(w.cardId, card)
+        const next = withField(card, w.key, w.value)
+        after.set(w.cardId, next.card)
+        patches.set(w.cardId, { ...(patches.get(w.cardId) || {}), ...next.patch })
+      }
     } catch (error) {
       set({ cellError: ipcMessage(error) })
       return false
     }
-    replaceCard(next.card)
+    if (!patches.size) return false
+    for (const c of after.values()) replaceCard(c)
+    set((s) => ({ savingCount: s.savingCount + 1 }))
     try {
-      const row = await window.api.updateCard(cardId, next.patch)
-      if (row) replaceCard(toUiCard(row))
+      const ids = [...patches.keys()]
+      const rows = ids.length === 1
+        ? [await window.api.updateCard(ids[0], patches.get(ids[0]))]
+        : await window.api.bulkUpdateCards(get().activeProjectId, ids.map((id) => ({ id, patch: patches.get(id) })))
+      for (const row of rows) if (row) replaceCard(toUiCard(row))
       set({ cellError: null })
+      if (writes.some((w) => w.key === 'image_path' || w.key.startsWith('custom:'))) get().loadMissingArt()
       return true
     } catch (error) {
-      replaceCard(card)
+      for (const c of before.values()) replaceCard(c)
       set({ cellError: ipcMessage(error) })
       return false
+    } finally {
+      set((s) => ({ savingCount: Math.max(0, s.savingCount - 1) }))
     }
   }
 
@@ -53,36 +71,85 @@ export function createCardsSlice(set, get) {
       if (get().activeCardId !== id) set({ activeCardId: id })
     },
 
+    setCardsTab: (tab) => set({ cardsTab: tab }),
+
+    // A new card of a type, named "New <Type>" (numbered if taken), selected. Returns its id.
+    createCardOfType: async (typeId) => {
+      const { activeProjectId, cards, cardModel } = get()
+      const type = cardModel.types.find((t) => t.id === typeId) || cardModel.types[0]
+      const base = `New ${type ? type.name : 'card'}`
+      const taken = new Set(cards.map((c) => c.name))
+      let name = base
+      for (let n = 2; taken.has(name); n++) name = `${base} ${n}`
+      try {
+        const row = await window.api.createCard(activeProjectId, { name, ...(type ? { card_type_id: type.id } : {}) })
+        await get().loadCards()
+        set({ activeCardId: row.id })
+        return row.id
+      } catch (error) {
+        set({ cellError: ipcMessage(error) })
+        return null
+      }
+    },
+
+    duplicateCardAndSelect: async (id) => {
+      const row = await window.api.duplicateCard(id)
+      await get().loadCards()
+      if (row) set({ activeCardId: row.id })
+    },
+
+    // Delete a card; the selection moves to its neighbour.
+    deleteCardAndSelectNext: async (id) => {
+      const { cards } = get()
+      const i = cards.findIndex((c) => c.id === id)
+      const next = cards[i + 1] || cards[i - 1] || null
+      await window.api.deleteCard(id)
+      set((s) => ({ cellHistory: { past: s.cellHistory.past.filter((step) => !step.some((c) => c.cardId === id)), future: [] } }))
+      await get().loadCards()
+      set({ activeCardId: next ? next.id : null })
+    },
+
     setLiveEdit: (cardId, key, value) => set({ liveEdit: { cardId, key, value } }),
     clearLiveEdit: () => set({ liveEdit: null }),
 
     // Commit a cell. Records an undo step when the value changed.
     commitCell: async (cardId, key, value) => {
-      const card = get().cards.find((c) => c.id === cardId)
       set({ liveEdit: null })
-      if (!card) return
-      const before = getFieldValue(card, key)
-      if (before === String(value ?? '')) return
-      if (await writeField(cardId, key, value)) {
-        if (key === 'image_path') get().loadMissingArt()
-        set((s) => ({ cellHistory: recordCellEdit(s.cellHistory, { cardId, key, before, after: String(value ?? '') }) }))
+      return get().commitChanges([{ cardId, key, value }])
+    },
+
+    // Commit several cells as one save and one undo step. Unchanged values are skipped.
+    // Returns the number of cells written (0 if nothing changed or the save failed).
+    commitChanges: async (writes) => {
+      const step = []
+      for (const w of writes) {
+        const card = get().cards.find((c) => c.id === w.cardId)
+        if (!card) continue
+        const before = getFieldRaw(card, w.key)
+        const after = typeof w.value === 'boolean' ? w.value : String(w.value ?? '')
+        if (sameValue(before, after)) continue
+        step.push({ cardId: w.cardId, key: w.key, before, after })
       }
+      if (!step.length) return 0
+      if (!(await writeChanges(step.map((c) => ({ cardId: c.cardId, key: c.key, value: c.after }))))) return 0
+      set((s) => ({ cellHistory: recordCellEdit(s.cellHistory, step) }))
+      return step.length
     },
 
     undoCellEdit: async () => {
-      const step = undoCell(get().cellHistory)
-      if (!step) return null
-      set({ cellHistory: step.history, activeCardId: step.entry.cardId })
-      await writeField(step.entry.cardId, step.entry.key, step.value)
-      return step.entry
+      const r = undoCell(get().cellHistory)
+      if (!r) return null
+      set({ cellHistory: r.history, activeCardId: r.step[0].cardId })
+      await writeChanges(r.writes)
+      return r.step[0]
     },
 
     redoCellEdit: async () => {
-      const step = redoCell(get().cellHistory)
-      if (!step) return null
-      set({ cellHistory: step.history, activeCardId: step.entry.cardId })
-      await writeField(step.entry.cardId, step.entry.key, step.value)
-      return step.entry
+      const r = redoCell(get().cellHistory)
+      if (!r) return null
+      set({ cellHistory: r.history, activeCardId: r.step[0].cardId })
+      await writeChanges(r.writes)
+      return r.step[0]
     },
 
     setTemplateOverride: async (cardId, templateId) => {

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert'
 import {
   getFieldValue, withField, applyLive, customFieldNames, columnsFor, customKey,
-  createCellHistory, recordCellEdit, undoCell, redoCell,
+  createCellHistory, recordCellEdit, undoCell, redoCell, getFieldRaw, sameValue, cellKey,
 } from '../src/components/Cards/grid/cardFields.js'
 
 const card = { id: 1, name: 'Ember Drake', cost: '5', tags: ['dragon', 'fire'], custom_fields: { element: 'Fire' } }
@@ -39,16 +39,27 @@ test('custom columns come from the card schema, then from cards; built-ins are s
   assert.deepEqual(columnsFor(['artist']).slice(-1)[0], { key: 'custom:artist', label: 'artist', width: 130, custom: true })
 })
 
-test('cell history undoes and redoes in order', () => {
+test('cell history: single edits and multi-cell steps undo and redo as units', () => {
   let h = createCellHistory()
   h = recordCellEdit(h, { cardId: 1, key: 'cost', before: '5', after: '6' })
-  h = recordCellEdit(h, { cardId: 1, key: 'cost', before: '6', after: '7' })
+  h = recordCellEdit(h, [{ cardId: 1, key: 'cost', before: '6', after: '7' }, { cardId: 2, key: 'cost', before: '', after: '7' }])
   const u1 = undoCell(h)
-  assert.equal(u1.value, '6')
+  assert.deepEqual(u1.writes, [{ cardId: 1, key: 'cost', value: '6' }, { cardId: 2, key: 'cost', value: '' }], 'the batch reverts together')
   const u2 = undoCell(u1.history)
-  assert.equal(u2.value, '5')
+  assert.deepEqual(u2.writes, [{ cardId: 1, key: 'cost', value: '5' }])
   assert.equal(undoCell(u2.history), null)
   const r = redoCell(u2.history)
-  assert.equal(r.value, '6')
+  assert.deepEqual(r.writes, [{ cardId: 1, key: 'cost', value: '6' }])
   assert.equal(recordCellEdit(r.history, { cardId: 1, key: 'x', before: '', after: '1' }).future.length, 0, 'a new edit clears redo')
+})
+
+test('Yes/No values stay booleans; cell keys map model keys to storage', () => {
+  const c = withField(card, customKey('flying'), true)
+  assert.strictEqual(c.card.custom_fields.flying, true)
+  assert.strictEqual(getFieldRaw(c.card, customKey('flying')), true)
+  assert.strictEqual(withField(c.card, customKey('flying'), false).card.custom_fields.flying, false)
+  assert.ok(sameValue(true, true) && !sameValue(true, 'true') && sameValue('5', '5'))
+  assert.equal(cellKey('cost'), 'cost')
+  assert.equal(cellKey('atk'), 'custom:atk')
+  assert.equal(cellKey('card_type_id'), 'card_type_id')
 })

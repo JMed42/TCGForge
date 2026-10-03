@@ -29,7 +29,6 @@ export const useStore = create((set, get) => ({
     sortBy: 'name',
     sortDir: 'ASC',
   },
-  editingCard: null,
 
   // Documents
   documents: [],
@@ -115,9 +114,6 @@ export const useStore = create((set, get) => ({
     await get().loadCards()
   },
 
-  setEditingCard: (card) => {
-    set({ editingCard: card })
-  },
 
   createCard: async (data) => {
     try {
@@ -136,7 +132,6 @@ export const useStore = create((set, get) => ({
       if (!activeProjectId) return
       await window.api?.updateCard?.(id, data)
       await get().loadCards()
-      set({ editingCard: null })
     } catch (error) {
       console.error('Failed to update card:', error)
     }

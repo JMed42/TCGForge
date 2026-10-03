@@ -59,6 +59,23 @@ export function getFieldValue(card, key) {
   return text(card[key])
 }
 
+// The stored value: Yes/No custom fields are booleans, everything else text. Used for history so
+// an undo restores the same kind of value.
+export function getFieldRaw(card, key) {
+  if (!card) return ''
+  if (isCustomKey(key)) {
+    const v = (card.custom_fields || {})[customName(key)]
+    return typeof v === 'boolean' ? v : text(v)
+  }
+  return text(card[key])
+}
+
+export const sameValue = (a, b) => (typeof a === 'boolean' || typeof b === 'boolean' ? a === b : String(a ?? '') === String(b ?? ''))
+
+// The grid/form key for a model field key: standard columns by name, others under "custom:".
+const COLUMN_KEYS = new Set(['name', 'type', 'set_name', 'rarity', 'cost', 'power', 'toughness', 'rules_text', 'flavor_text', 'tags', 'notes', 'image_path', 'card_type_id'])
+export const cellKey = (fieldKey) => (COLUMN_KEYS.has(fieldKey) ? fieldKey : customKey(fieldKey))
+
 const splitTags = (v) => String(v).split(',').map((t) => t.trim()).filter(Boolean)
 
 /**
@@ -70,7 +87,8 @@ export function withField(card, key, value) {
   if (isCustomKey(key)) {
     const fields = { ...(card.custom_fields || {}) }
     const name = customName(key)
-    if (v === '') delete fields[name]
+    if (typeof value === 'boolean') fields[name] = value
+    else if (v === '') delete fields[name]
     else fields[name] = v
     return { card: { ...card, custom_fields: fields }, patch: { custom_fields: fields } }
   }
@@ -79,6 +97,10 @@ export function withField(card, key, value) {
     return { card: { ...card, tags }, patch: { tags } }
   }
   if (key === 'name' && !v.trim()) throw new Error('a card needs a name')
+  if (key === 'card_type_id') {
+    const id = Number(v)
+    return { card: { ...card, card_type_id: id }, patch: { card_type_id: id } }
+  }
   return { card: { ...card, [key]: v }, patch: { [key]: v } }
 }
 
@@ -92,7 +114,8 @@ export function applyLive(card, live) {
   }
 }
 
-// ----- cell undo/redo: a stack of { cardId, key, before, after } -----
+// ----- cell undo/redo: each step is a list of { cardId, key, before, after } -----
+// One typed cell is a step of one change; a paste, fill-down or bulk edit is one step of many.
 
 export const CELL_HISTORY_LIMIT = 200
 
@@ -100,21 +123,22 @@ export function createCellHistory() {
   return { past: [], future: [] }
 }
 
-export function recordCellEdit(history, entry) {
-  const past = [...history.past, entry]
+export function recordCellEdit(history, changes) {
+  const step = Array.isArray(changes) ? changes : [changes]
+  const past = [...history.past, step]
   if (past.length > CELL_HISTORY_LIMIT) past.splice(0, past.length - CELL_HISTORY_LIMIT)
   return { past, future: [] }
 }
 
-// { history, entry, value } to apply, or null.
+// { history, step, writes: [{ cardId, key, value }] } to apply, or null.
 export function undoCell(history) {
   if (!history.past.length) return null
-  const entry = history.past[history.past.length - 1]
-  return { entry, value: entry.before, history: { past: history.past.slice(0, -1), future: [entry, ...history.future] } }
+  const step = history.past[history.past.length - 1]
+  return { step, writes: step.map((c) => ({ cardId: c.cardId, key: c.key, value: c.before })), history: { past: history.past.slice(0, -1), future: [step, ...history.future] } }
 }
 
 export function redoCell(history) {
   if (!history.future.length) return null
-  const [entry, ...future] = history.future
-  return { entry, value: entry.after, history: { past: [...history.past, entry], future } }
+  const [step, ...future] = history.future
+  return { step, writes: step.map((c) => ({ cardId: c.cardId, key: c.key, value: c.after })), history: { past: [...history.past, step], future } }
 }

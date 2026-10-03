@@ -266,7 +266,7 @@ export default function CardTable() {
           <h3 className="text-xl font-semibold text-text-primary mb-2">{cards.length ? 'No cards match' : 'No cards yet'}</h3>
           <p className="text-text-muted mb-6">{cards.length ? 'Change the filters to see more cards.' : 'Create your first card, or import a spreadsheet.'}</p>
           {!cards.length && (
-            <button onClick={() => actions.setEditingCard({})} className="px-4 py-2 bg-accent text-white rounded hover:bg-accent/90 transition-colors">
+            <button onClick={() => { actions.setCardsTab('cards'); actions.createCardOfType(actions.cardModel.types[0]?.id) }} className="px-4 py-2 bg-accent text-white rounded hover:bg-accent/90 transition-colors">
               Create Card
             </button>
           )}
@@ -371,7 +371,7 @@ export default function CardTable() {
                   })}
                   <td className="px-2 py-1.5 text-right">
                     <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => actions.setEditingCard(card)} className="p-1 hover:bg-surface-3 rounded text-text-secondary hover:text-accent" title="Edit all fields">
+                      <button onClick={() => { actions.setActiveCard(card.id); actions.setCardsTab('cards') }} className="p-1 hover:bg-surface-3 rounded text-text-secondary hover:text-accent" title="Open in the card form" data-open-form={card.id}>
                         <Pencil size={15} />
                       </button>
                       <button onClick={() => actions.duplicateCard(card.id)} className="p-1 hover:bg-surface-3 rounded text-text-secondary hover:text-accent" title="Duplicate">
